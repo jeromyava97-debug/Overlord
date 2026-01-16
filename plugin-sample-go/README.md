@@ -38,3 +38,12 @@ Navigate to:
 - /plugins/sample?clientId=<CLIENT_ID>
 
 Click "Send event" and the WASM plugin will echo back to the server logs.
+
+## OS detection (Windows-only logic)
+
+The plugin receives host metadata in the `init` payload. The sample plugin shows
+how to detect the host OS and branch logic (see
+[plugin-sample-go/wasm/main.go](plugin-sample-go/wasm/main.go)). For example:
+
+- If `host.os == "windows"`, you can safely run Windows-only flows (e.g., WinAPI-backed behavior).
+- Otherwise, skip or provide a fallback path.

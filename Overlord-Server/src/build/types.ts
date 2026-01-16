@@ -13,6 +13,8 @@ export type BuildConfig = {
   serverUrl?: string;
   customId?: string;
   countryCode?: string;
+  mutex?: string;
+  disableMutex?: boolean;
   stripDebug?: boolean;
   disableCgo?: boolean;
   enablePersistence?: boolean;

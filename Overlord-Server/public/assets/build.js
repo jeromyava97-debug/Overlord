@@ -118,6 +118,8 @@ form?.addEventListener("submit", async (e) => {
   }
 
   const serverUrl = form.querySelector("#server-url").value.trim();
+  const mutex = form.querySelector("#mutex")?.value.trim() || "";
+  const disableMutex = form.querySelector('input[name="disable-mutex"]')?.checked || false;
   const customId = form.querySelector("#custom-id").value.trim();
   const countryCode = form
     .querySelector("#country-code")
@@ -132,6 +134,8 @@ form?.addEventListener("submit", async (e) => {
   const buildConfig = {
     platforms,
     serverUrl: serverUrl || undefined,
+    mutex: disableMutex ? "" : mutex || undefined,
+    disableMutex,
     customId: customId || undefined,
     countryCode: countryCode || undefined,
     stripDebug,

