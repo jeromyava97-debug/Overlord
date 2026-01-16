@@ -161,15 +161,24 @@ var captureDisplayFn = func(display int) (*image.RGBA, error) {
 	bounds := mon.rect
 	physW := mon.physW
 	physH := mon.physH
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
 
 	if physW <= 0 || physH <= 0 {
-		physW = bounds.Dx()
-		physH = bounds.Dy()
+		physW = srcW
+		physH = srcH
+	}
+	if srcW <= 0 || srcH <= 0 {
+		return nil, syscall.EINVAL
 	}
 
 	userScale := captureScale()
 	dstW := int(float64(physW) * userScale)
 	dstH := int(float64(physH) * userScale)
+	if dstW <= 0 || dstH <= 0 {
+		dstW = int(float64(srcW) * userScale)
+		dstH = int(float64(srcH) * userScale)
+	}
 
 	hdcScreen := getDC(0)
 	if hdcScreen == 0 {
@@ -188,8 +197,14 @@ var captureDisplayFn = func(display int) (*image.RGBA, error) {
 
 	bitStart := time.Now()
 
-	if !stretchBlt(hdcMem, 0, 0, int32(dstW), int32(dstH), hdcScreen, int32(bounds.Min.X), int32(bounds.Min.Y), int32(physW), int32(physH), SRCCOPY) {
-		return nil, syscall.EINVAL
+	if !stretchBlt(hdcMem, 0, 0, int32(dstW), int32(dstH), hdcScreen, int32(bounds.Min.X), int32(bounds.Min.Y), int32(srcW), int32(srcH), SRCCOPY) {
+		if srcW != physW || srcH != physH {
+			if !stretchBlt(hdcMem, 0, 0, int32(dstW), int32(dstH), hdcScreen, int32(bounds.Min.X), int32(bounds.Min.Y), int32(physW), int32(physH), SRCCOPY) {
+				return nil, syscall.EINVAL
+			}
+		} else {
+			return nil, syscall.EINVAL
+		}
 	}
 	bitDur := time.Since(bitStart)
 
