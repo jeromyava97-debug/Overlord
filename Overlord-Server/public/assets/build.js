@@ -127,6 +127,7 @@ form?.addEventListener("submit", async (e) => {
     .toUpperCase();
   const stripDebug = form.querySelector('input[name="strip-debug"]').checked;
   const disableCgo = form.querySelector('input[name="disable-cgo"]').checked;
+  const obfuscate = form.querySelector('input[name="obfuscate"]').checked;
   const enablePersistence = form.querySelector(
     'input[name="enable-persistence"]',
   ).checked;
@@ -140,6 +141,7 @@ form?.addEventListener("submit", async (e) => {
     countryCode: countryCode || undefined,
     stripDebug,
     disableCgo,
+    obfuscate,
     enablePersistence,
   };
 

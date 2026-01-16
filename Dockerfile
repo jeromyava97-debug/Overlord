@@ -13,7 +13,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go (latest stable version)
-ENV GO_VERSION=1.22.0
+ENV GO_VERSION=1.25.6
 RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
     && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz \
     && rm go${GO_VERSION}.linux-amd64.tar.gz
@@ -21,6 +21,9 @@ RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
+
+# Install garble for obfuscated agent builds (requires Go 1.25+)
+RUN go install mvdan.cc/garble@latest
 
 # Copy package files
 COPY Overlord-Server/package.json Overlord-Server/bun.lockb* ./

@@ -9,6 +9,8 @@ TARGETS="${TARGETS:-windows/amd64 windows/arm64 linux/amd64 linux/arm64 linux/ar
 GO_BUILD_FLAGS="${GO_BUILD_FLAGS:--trimpath}"
 LDFLAGS_EXTRA="${LDFLAGS:--s -w}"
 ENABLE_PERSISTENCE="${ENABLE_PERSISTENCE:-false}"
+OBFUSCATE="${OBFUSCATE:-false}"
+GARBLE_FLAGS="${GARBLE_FLAGS:-}"
 SERVER_URL="${SERVER_URL:-}"
 CLIENT_ID="${CLIENT_ID:-}"
 CLIENT_COUNTRY="${CLIENT_COUNTRY:-}"
@@ -35,6 +37,16 @@ if [ -n "${CLIENT_COUNTRY}" ]; then
 fi
 
 echo "LDFLAGS: ${LDFLAGS_EXTRA}"
+
+BUILD_CMD=(go build)
+if [ "${OBFUSCATE}" = "true" ]; then
+  if ! command -v garble >/dev/null 2>&1; then
+    echo "garble not found. Install with: go install mvdan.cc/garble@latest" >&2
+    exit 1
+  fi
+  echo "Obfuscation enabled (garble)"
+  BUILD_CMD=(garble build ${GARBLE_FLAGS})
+fi
 
 mkdir -p "${OUT_DIR}"
 cd "${CLIENT_DIR}"
@@ -65,7 +77,7 @@ for target in ${target_list}; do
   fi
 
   echo "==> Building ${bin_name} (GOOS=${GOOS} GOARCH=${GOARCH}${GOARM:+ GOARM=${GOARM}})"
-  go build ${GO_BUILD_FLAGS} -ldflags "${LDFLAGS_EXTRA}" -o "${OUT_DIR}/${bin_name}" ./cmd/agent
+  "${BUILD_CMD[@]}" ${GO_BUILD_FLAGS} -ldflags "${LDFLAGS_EXTRA}" -o "${OUT_DIR}/${bin_name}" ./cmd/agent
 
   echo "    ✔ done"
 done

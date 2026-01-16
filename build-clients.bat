@@ -5,6 +5,9 @@ set CLIENT_DIR=%ROOT%Overlord-Client
 set OUT_DIR=%ROOT%dist-clients
 
 set ENABLE_PERSISTENCE=false
+set OBFUSCATE=false
+
+set "GARBLE_FLAGS="
 
 REM Build LDFLAGS with all custom settings
 set "LDFLAGS=-s -w"
@@ -31,6 +34,17 @@ if not "%CLIENT_COUNTRY%"=="" (
 
 echo LDFLAGS: %LDFLAGS%
 
+set "BUILD_CMD=go build"
+if "%OBFUSCATE%"=="true" (
+    where garble >nul 2>&1
+    if errorlevel 1 (
+        echo garble not found. Install with: go install mvdan.cc/garble@latest
+        exit /b 1
+    )
+    echo Obfuscation enabled (garble)
+    set "BUILD_CMD=garble build %GARBLE_FLAGS%"
+)
+
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
 pushd "%CLIENT_DIR%"
@@ -38,28 +52,28 @@ echo == Building agent for windows amd64 ==
 set GOOS=windows
 set GOARCH=amd64
 set CGO_ENABLED=0
-go build -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-windows-amd64.exe" ./cmd/agent
+%BUILD_CMD% -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-windows-amd64.exe" ./cmd/agent
 if errorlevel 1 goto :err
 
 echo == Building agent for windows arm64 ==
 set GOOS=windows
 set GOARCH=arm64
 set CGO_ENABLED=0
-go build -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-windows-arm64.exe" ./cmd/agent
+%BUILD_CMD% -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-windows-arm64.exe" ./cmd/agent
 if errorlevel 1 goto :err
 
 echo == Building agent for linux amd64 ==
 set GOOS=linux
 set GOARCH=amd64
 set CGO_ENABLED=0
-go build -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-linux-amd64" ./cmd/agent
+%BUILD_CMD% -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-linux-amd64" ./cmd/agent
 if errorlevel 1 goto :err
 
 echo == Building agent for linux arm64 ==
 set GOOS=linux
 set GOARCH=arm64
 set CGO_ENABLED=0
-go build -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-linux-arm64" ./cmd/agent
+%BUILD_CMD% -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-linux-arm64" ./cmd/agent
 if errorlevel 1 goto :err
 
 echo == Building agent for linux arm (armv7) ==
@@ -67,14 +81,14 @@ set GOOS=linux
 set GOARCH=arm
 set GOARM=7
 set CGO_ENABLED=0
-go build -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-linux-armv7" ./cmd/agent
+%BUILD_CMD% -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-linux-armv7" ./cmd/agent
 if errorlevel 1 goto :err
 
 echo == Building agent for darwin arm64 ==
 set GOOS=darwin
 set GOARCH=arm64
 set CGO_ENABLED=0
-go build -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-darwin-arm64" ./cmd/agent
+%BUILD_CMD% -ldflags="%LDFLAGS%" -o "%OUT_DIR%\agent-darwin-arm64" ./cmd/agent
 if errorlevel 1 goto :err
 
 echo Builds complete. Outputs in %OUT_DIR%
