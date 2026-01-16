@@ -1,3 +1,5 @@
+import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
+
 const clientId = window.location.pathname.split("/")[1];
 let ws = null;
 let processes = [];
@@ -26,6 +28,7 @@ function connect() {
   const wsUrl = `${protocol}//${window.location.host}/api/clients/${clientId}/processes/ws`;
 
   ws = new WebSocket(wsUrl);
+  ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
     console.log("Process manager connected");
@@ -35,12 +38,12 @@ function connect() {
   };
 
   ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      handleMessage(msg);
-    } catch (err) {
-      console.error("Failed to parse message:", err);
+    const msg = decodeMsgpack(event.data);
+    if (!msg) {
+      console.error("Failed to decode message");
+      return;
     }
+    handleMessage(msg);
   };
 
   ws.onerror = (err) => {
@@ -82,7 +85,7 @@ function updateKillButton() {
 
 function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
+    ws.send(encodeMsgpack(msg));
   }
 }
 
@@ -122,7 +125,23 @@ function handleProcessList(msg) {
     return;
   }
 
-  processes = msg.processes || [];
+  processes = (msg.processes || []).map((proc) => {
+    const normalizeId = (value) => {
+      if (typeof value === "bigint") {
+        return Number(value);
+      }
+      if (typeof value === "string" && value.trim()) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      return Number.isFinite(value) ? value : 0;
+    };
+    return {
+      ...proc,
+      pid: normalizeId(proc.pid),
+      ppid: normalizeId(proc.ppid),
+    };
+  });
   processCountEl.innerHTML = `<i class="fa-solid fa-list"></i> ${processes.length} processes`;
   updateStatus("connected", "Connected");
   buildProcessTree();
@@ -318,8 +337,13 @@ function killProcess() {
 
   if (!confirm(`Kill process "${proc.name}" (PID: ${proc.pid})?`)) return;
 
-  console.log("Killing process:", selectedPid);
-  send({ type: "process_kill", pid: selectedPid });
+  const pid = Number(selectedPid);
+  if (!Number.isFinite(pid) || pid <= 0) {
+    alert("Invalid PID selected.");
+    return;
+  }
+  console.log("Killing process:", pid);
+  send({ type: "process_kill", pid });
   updateStatus("connected", "Killing process...");
 }
 
@@ -359,9 +383,19 @@ function updateSortIndicators() {
 }
 
 function formatBytes(bytes) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
+  if (bytes === 0 || bytes === 0n) return "0 B";
   const sizes = ["B", "KB", "MB", "GB"];
+  if (typeof bytes === "bigint") {
+    const k = 1024n;
+    let i = 0;
+    let value = bytes;
+    while (value >= k && i < sizes.length - 1) {
+      value /= k;
+      i += 1;
+    }
+    return `${value.toString()} ${sizes[i]}`;
+  }
+  const k = 1024;
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }

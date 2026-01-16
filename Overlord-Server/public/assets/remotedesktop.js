@@ -1,3 +1,5 @@
+import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
+
 (function () {
   const clientId = new URLSearchParams(location.search).get("clientId");
   if (!clientId) {
@@ -60,7 +62,7 @@
     }
     const msg = { type, ...payload };
     console.debug("rd: send", msg);
-    ws.send(JSON.stringify(msg));
+    ws.send(encodeMsgpack(msg));
   }
 
   let monitors = 1;
@@ -158,100 +160,103 @@
   ws.addEventListener("message", async function (ev) {
     if (ev.data instanceof ArrayBuffer) {
       const buf = new Uint8Array(ev.data);
-      if (buf.length < 8) return;
-      if (buf[0] !== 0x46 || buf[1] !== 0x52 || buf[2] !== 0x4d) return;
-      const fps = buf[5];
-      const format = buf[6];
+      if (buf.length >= 8 && buf[0] === 0x46 && buf[1] === 0x52 && buf[2] === 0x4d) {
+        const fps = buf[5];
+        const format = buf[6];
 
-      if (format === 1) {
-        const jpegBytes = buf.slice(8);
-        const blob = new Blob([jpegBytes], { type: "image/jpeg" });
-        try {
-          const bitmap = await createImageBitmap(blob);
-          canvas.width = bitmap.width;
-          canvas.height = bitmap.height;
-          ctx.drawImage(bitmap, 0, 0);
-          bitmap.close();
-          updateFpsDisplay(fps);
-        } catch {
-          const img = new Image();
-          const url = URL.createObjectURL(blob);
-          img.onload = function () {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            URL.revokeObjectURL(url);
+        if (format === 1) {
+          const jpegBytes = buf.slice(8);
+          const blob = new Blob([jpegBytes], { type: "image/jpeg" });
+          try {
+            const bitmap = await createImageBitmap(blob);
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
             updateFpsDisplay(fps);
-          };
-          img.src = url;
+          } catch {
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+            img.onload = function () {
+              canvas.width = img.width;
+              canvas.height = img.height;
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              updateFpsDisplay(fps);
+            };
+            img.src = url;
+          }
+          return;
         }
-        return;
-      }
 
-      if (format === 2 || format === 3) {
-        if (buf.length < 8 + 8) return;
-        const dv = new DataView(buf.buffer, 8);
-        let pos = 0;
-        const width = dv.getUint16(pos, true);
-        pos += 2;
-        const height = dv.getUint16(pos, true);
-        pos += 2;
-        const blockCount = dv.getUint16(pos, true);
-        pos += 2;
-        pos += 2;
+        if (format === 2 || format === 3) {
+          if (buf.length < 8 + 8) return;
+          const dv = new DataView(buf.buffer, 8);
+          let pos = 0;
+          const width = dv.getUint16(pos, true);
+          pos += 2;
+          const height = dv.getUint16(pos, true);
+          pos += 2;
+          const blockCount = dv.getUint16(pos, true);
+          pos += 2;
+          pos += 2;
 
-        if (
-          width > 0 &&
-          height > 0 &&
-          (canvas.width !== width || canvas.height !== height)
-        ) {
-          canvas.width = width;
-          canvas.height = height;
-        }
-        for (let i = 0; i < blockCount; i++) {
-          if (pos + 12 > dv.byteLength) break;
-          const x = dv.getUint16(pos, true);
-          pos += 2;
-          const y = dv.getUint16(pos, true);
-          pos += 2;
-          const w = dv.getUint16(pos, true);
-          pos += 2;
-          const h = dv.getUint16(pos, true);
-          pos += 2;
-          const len = dv.getUint32(pos, true);
-          pos += 4;
-          const start = 8 + pos;
-          const end = start + len;
-          if (end > buf.length) break;
-          const slice = buf.subarray(start, end);
-          pos += len;
-          if (format === 2) {
-            try {
-              const bitmap = await createImageBitmap(
-                new Blob([slice], { type: "image/jpeg" }),
-              );
-              ctx.drawImage(bitmap, x, y, w, h);
-              bitmap.close();
-            } catch {}
-          } else {
-            if (slice.length === w * h * 4) {
-              const imgData = new ImageData(new Uint8ClampedArray(slice), w, h);
-              ctx.putImageData(imgData, x, y);
+          if (
+            width > 0 &&
+            height > 0 &&
+            (canvas.width !== width || canvas.height !== height)
+          ) {
+            canvas.width = width;
+            canvas.height = height;
+          }
+          for (let i = 0; i < blockCount; i++) {
+            if (pos + 12 > dv.byteLength) break;
+            const x = dv.getUint16(pos, true);
+            pos += 2;
+            const y = dv.getUint16(pos, true);
+            pos += 2;
+            const w = dv.getUint16(pos, true);
+            pos += 2;
+            const h = dv.getUint16(pos, true);
+            pos += 2;
+            const len = dv.getUint32(pos, true);
+            pos += 4;
+            const start = 8 + pos;
+            const end = start + len;
+            if (end > buf.length) break;
+            const slice = buf.subarray(start, end);
+            pos += len;
+            if (format === 2) {
+              try {
+                const bitmap = await createImageBitmap(
+                  new Blob([slice], { type: "image/jpeg" }),
+                );
+                ctx.drawImage(bitmap, x, y, w, h);
+                bitmap.close();
+              } catch {}
+            } else {
+              if (slice.length === w * h * 4) {
+                const imgData = new ImageData(new Uint8ClampedArray(slice), w, h);
+                ctx.putImageData(imgData, x, y);
+              }
             }
           }
+          updateFpsDisplay(fps);
+          return;
         }
-        updateFpsDisplay(fps);
-        return;
       }
 
+      const msg = decodeMsgpack(buf);
+      if (msg && msg.type === "status" && msg.status) {
+        return;
+      }
       return;
     }
 
-    try {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === "status" && msg.status) {
-      }
-    } catch (e) {}
+    const msg = decodeMsgpack(ev.data);
+    if (msg && msg.type === "status" && msg.status) {
+      return;
+    }
   });
 
   ws.addEventListener("open", function () {
@@ -275,16 +280,16 @@
     const y = Math.floor(
       ((e.clientY - rect.top) / rect.height) * canvas.height,
     );
-    ws.send(JSON.stringify({ type: "mouse_move", x, y }));
+    sendCmd("mouse_move", { x, y });
   });
   canvas.addEventListener("mousedown", function (e) {
     if (!mouseCtrl.checked) return;
-    ws.send(JSON.stringify({ type: "mouse_down", button: e.button }));
+    sendCmd("mouse_down", { button: e.button });
     e.preventDefault();
   });
   canvas.addEventListener("mouseup", function (e) {
     if (!mouseCtrl.checked) return;
-    ws.send(JSON.stringify({ type: "mouse_up", button: e.button }));
+    sendCmd("mouse_up", { button: e.button });
     e.preventDefault();
   });
   canvas.addEventListener("contextmenu", function (e) {
@@ -294,12 +299,12 @@
   canvas.setAttribute("tabindex", "0");
   canvas.addEventListener("keydown", function (e) {
     if (!kbdCtrl.checked) return;
-    ws.send(JSON.stringify({ type: "key_down", key: e.key, code: e.code }));
+    sendCmd("key_down", { key: e.key, code: e.code });
     e.preventDefault();
   });
   canvas.addEventListener("keyup", function (e) {
     if (!kbdCtrl.checked) return;
-    ws.send(JSON.stringify({ type: "key_up", key: e.key, code: e.code }));
+    sendCmd("key_up", { key: e.key, code: e.code });
     e.preventDefault();
   });
 

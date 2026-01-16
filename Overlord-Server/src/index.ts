@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { $ } from "bun";
 import { decodeMessage, encodeMessage, type WireMessage, type PluginManifest } from "./protocol";
+import { encode as msgpackEncode, decode as msgpackDecode } from "@msgpack/msgpack";
 import { logger } from "./logger";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -50,7 +51,7 @@ const CORS_HEADERS = {
 
 
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com; img-src 'self' data: https://cdn.jsdelivr.net; font-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.gstatic.com; connect-src 'self' wss: ws: https://cdn.jsdelivr.net",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com; img-src 'self' data: https://cdn.jsdelivr.net; font-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.gstatic.com; connect-src 'self' wss: ws: https://cdn.jsdelivr.net",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "X-XSS-Protection": "1; mode=block",
@@ -729,9 +730,25 @@ async function startBuildProcess(
 
 
 
+function decodeViewerPayload(raw: string | ArrayBuffer | Uint8Array): any | null {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+    return msgpackDecode(buf);
+  } catch {
+    return null;
+  }
+}
+
 function safeSendViewer(ws: ServerWebSocket<SocketData>, payload: unknown) {
   try {
-    ws.send(JSON.stringify(payload));
+    ws.send(msgpackEncode(payload));
   } catch (err) {
     logger.error("[console] viewer send failed", err);
   }
@@ -865,9 +882,8 @@ function handleRemoteDesktopViewerOpen(ws: ServerWebSocket<SocketData>) {
   }
 }
 function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
-  let json = typeof raw === "string" ? raw : textDecoder.decode(raw instanceof Uint8Array ? raw : new Uint8Array(raw));
-  let payload: any;
-  try { payload = JSON.parse(json); } catch { return; }
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
   if (!payload || typeof payload.type !== "string") return;
   const { clientId } = ws.data;
   const target = clientManager.getClient(clientId);
@@ -975,9 +991,8 @@ function handleFileBrowserViewerOpen(ws: ServerWebSocket<SocketData>) {
 }
 
 function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
-  let json = typeof raw === "string" ? raw : textDecoder.decode(raw instanceof Uint8Array ? raw : new Uint8Array(raw));
-  let payload: any;
-  try { payload = JSON.parse(json); } catch { return; }
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
   if (!payload || typeof payload.type !== "string") return;
   const { clientId } = ws.data;
   logger.debug(`[DEBUG] File browser message from viewer for client ${clientId}:`, payload.type, payload.commandType || '');
@@ -1063,13 +1078,20 @@ function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       });
       break;
     case "file_upload": {
-      
-      const base64Data = payload.data || "";
-      const binaryString = atob(base64Data);
-      const data = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        data[i] = binaryString.charCodeAt(i);
+      let data: Uint8Array | null = null;
+      if (payload.data instanceof Uint8Array) {
+        data = payload.data;
+      } else if (payload.data instanceof ArrayBuffer) {
+        data = new Uint8Array(payload.data);
+      } else if (typeof payload.data === "string") {
+        const binaryString = atob(payload.data || "");
+        const tmp = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          tmp[i] = binaryString.charCodeAt(i);
+        }
+        data = tmp;
       }
+      if (!data) return;
       target.ws.send(encodeMessage({ type: "command", commandType: "file_upload", id: commandId, payload: { path: payload.path || "", data, offset: payload.offset || 0 } }));
       metrics.recordCommand("file_upload");
       logAudit({
@@ -1137,13 +1159,9 @@ function handleFileBrowserMessage(clientId: string, payload: any) {
   for (const session of sessionManager.getAllFileBrowserSessions().values()) {
     if (session.clientId !== clientId) continue;
     logger.debug(`[DEBUG] Forwarding ${payload.type} to file browser viewer`);
-    
-    if (payload.type === 'file_download' && payload.data) {
-      const encodedPayload = {
-        ...payload,
-        data: Buffer.from(payload.data).toString('base64')
-      };
-      safeSendViewer(session.viewer, encodedPayload);
+    if (payload.type === "file_download" && payload.data) {
+      const data = payload.data instanceof Uint8Array ? payload.data : new Uint8Array(payload.data);
+      safeSendViewer(session.viewer, { ...payload, data });
     } else {
       safeSendViewer(session.viewer, payload);
     }
@@ -1165,9 +1183,8 @@ function handleProcessViewerOpen(ws: ServerWebSocket<SocketData>) {
 }
 
 function handleProcessViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
-  let json = typeof raw === "string" ? raw : textDecoder.decode(raw instanceof Uint8Array ? raw : new Uint8Array(raw));
-  let payload: any;
-  try { payload = JSON.parse(json); } catch { return; }
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
   if (!payload || typeof payload.type !== "string") return;
   const { clientId } = ws.data;
   const target = clientManager.getClient(clientId);
@@ -1180,8 +1197,15 @@ function handleProcessViewerMessage(ws: ServerWebSocket<SocketData>, raw: string
       metrics.recordCommand("process_list");
       break;
     case "process_kill":
-      target.ws.send(encodeMessage({ type: "command", commandType: "process_kill", id: commandId, payload: { pid: payload.pid } }));
-      metrics.recordCommand("process_kill");
+      {
+        const pid = Number(payload.pid);
+        if (!Number.isFinite(pid) || pid <= 0) {
+          safeSendViewer(ws, { type: "command_result", commandId, ok: false, message: "Invalid PID" });
+          break;
+        }
+        target.ws.send(encodeMessage({ type: "command", commandType: "process_kill", id: commandId, payload: { pid } }));
+        metrics.recordCommand("process_kill");
+      }
       break;
     default: 
       break;
@@ -1275,21 +1299,8 @@ function handlePluginEvent(clientId: string, payload: any) {
 }
 
 function handleConsoleViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
-  let json = "";
-  if (typeof raw === "string") {
-    json = raw;
-  } else if (raw instanceof Uint8Array) {
-    json = textDecoder.decode(raw);
-  } else {
-    json = textDecoder.decode(new Uint8Array(raw));
-  }
-
-  let payload: any;
-  try {
-    payload = JSON.parse(json);
-  } catch {
-    return;
-  }
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
   if (!payload || typeof payload.type !== "string") {
     return;
   }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 
 	"overlord-client/cmd/agent/capture"
@@ -437,8 +438,40 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		return HandleProcessList(ctx, env, cmdID)
 	case "process_kill":
 		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			if rawPayload, ok := envelope["payload"].(map[interface{}]interface{}); ok {
+				payload = make(map[string]interface{}, len(rawPayload))
+				for k, v := range rawPayload {
+					ks, ok := k.(string)
+					if !ok {
+						continue
+					}
+					payload[ks] = v
+				}
+			}
+		}
 		pid := int32(0)
 		if p, ok := payload["pid"].(float64); ok {
+			pid = int32(p)
+		}
+		if p, ok := payload["pid"].(string); ok {
+			if parsed, err := strconv.Atoi(p); err == nil {
+				pid = int32(parsed)
+			}
+		}
+		if p, ok := payload["pid"].(uint16); ok {
+			pid = int32(p)
+		}
+		if p, ok := payload["pid"].(uint8); ok {
+			pid = int32(p)
+		}
+		if p, ok := payload["pid"].(uint64); ok {
+			pid = int32(p)
+		}
+		if p, ok := payload["pid"].(uint32); ok {
+			pid = int32(p)
+		}
+		if p, ok := payload["pid"].(uint); ok {
 			pid = int32(p)
 		}
 		if p, ok := payload["pid"].(int32); ok {

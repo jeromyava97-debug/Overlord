@@ -1,4 +1,5 @@
 import { ansiToHtml } from "./ansi.js";
+import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 const outputEl = document.getElementById("console-output");
 const statusPill = document.getElementById("status-pill");
 const clientLabel = document.getElementById("client-label");
@@ -54,6 +55,7 @@ function connect() {
   appendSystem("Connecting to console...");
   setStatus("Connecting...", "pill-offline");
   ws = new WebSocket(wsUrl);
+  ws.binaryType = "arraybuffer";
 
   ws.addEventListener("open", () => {
     connected = true;
@@ -61,12 +63,8 @@ function connect() {
   });
 
   ws.addEventListener("message", (event) => {
-    let payload;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      return;
-    }
+    const payload = decodeMsgpack(event.data);
+    if (!payload) return;
 
     switch (payload.type) {
       case "ready":
@@ -94,7 +92,7 @@ function connect() {
           appendOutput(payload.data);
         }
         if (payload.error) appendSystem(payload.error);
-        if (payload.exitCode !== undefined) {
+        if (typeof payload.exitCode === "number") {
           appendSystem(`Process exited (${payload.exitCode})`);
           setStatus("Closed", "pill-offline");
         }
@@ -122,7 +120,7 @@ function sendInput(value) {
     appendSystem("Socket not ready");
     return;
   }
-  ws.send(JSON.stringify({ type: "input", data: value }));
+  ws.send(encodeMsgpack({ type: "input", data: value }));
 }
 
 function wireInput() {

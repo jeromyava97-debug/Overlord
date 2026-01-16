@@ -1,3 +1,5 @@
+import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
+
 const clientId = window.location.pathname.split("/")[1];
 let ws = null;
 let currentPath = "";
@@ -55,34 +57,38 @@ function connect() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}/api/clients/${clientId}/files/ws`;
 
-  ws = new WebSocket(wsUrl);
+  const socket = new WebSocket(wsUrl);
+  socket.binaryType = "arraybuffer";
+  ws = socket;
 
-  ws.onopen = () => {
+  socket.onopen = () => {
     console.log("File browser connected");
     updateStatus("connected", "Connected");
     enableControls(true);
-    listFiles(currentPath || ".");
+    listFiles(currentPath || ".", socket);
   };
 
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      handleMessage(msg);
-    } catch (err) {
-      console.error("Failed to parse message:", err);
+  socket.onmessage = (event) => {
+    const msg = decodeMsgpack(event.data);
+    if (!msg) {
+      console.error("Failed to decode message");
+      return;
     }
+    handleMessage(msg);
   };
 
-  ws.onerror = (err) => {
+  socket.onerror = (err) => {
     console.error("WebSocket error:", err);
     updateStatus("error", "Connection Error");
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
     console.log("File browser disconnected");
     updateStatus("disconnected", "Disconnected");
     enableControls(false);
-    setTimeout(() => connect(), 3000);
+    if (ws === socket) {
+      setTimeout(() => connect(), 3000);
+    }
   };
 }
 
@@ -107,19 +113,19 @@ function enableControls(enabled) {
   mkdirBtn.disabled = !enabled;
 }
 
-function send(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+function send(msg, socket = ws) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
     console.log(
       "[DEBUG] Sending message:",
       msg.type,
       msg.commandType || "",
       "to server",
     );
-    ws.send(JSON.stringify(msg));
+    socket.send(encodeMsgpack(msg));
   } else {
     console.error(
       "[DEBUG] Cannot send - WebSocket not open. State:",
-      ws?.readyState,
+      socket?.readyState,
     );
   }
 }
@@ -167,12 +173,12 @@ function handleMessage(msg) {
   }
 }
 
-function listFiles(path) {
+function listFiles(path, socket = ws) {
   if (currentPath && currentPath !== path) {
     pathHistory.push(currentPath);
   }
   currentPath = path;
-  send({ type: "file_list", path });
+  send({ type: "file_list", path }, socket);
   updateBreadcrumb(path);
   updatePathInput(path);
   updateBackButton();
@@ -540,9 +546,16 @@ function handleFileDownload(msg) {
   }
 
   if (msg.data && msg.data.length > 0) {
-    const data = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
-    download.chunks.push(data);
-    download.received += data.length;
+    let data = msg.data;
+    if (data instanceof ArrayBuffer) {
+      data = new Uint8Array(data);
+    } else if (typeof data === "string") {
+      data = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    }
+    if (data instanceof Uint8Array) {
+      download.chunks.push(data);
+      download.received += data.length;
+    }
   }
 
   if (msg.total) {
@@ -726,9 +739,19 @@ function hideContextMenu() {
 }
 
 function formatBytes(bytes) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
+  if (bytes === 0 || bytes === 0n) return "0 B";
   const sizes = ["B", "KB", "MB", "GB", "TB"];
+  if (typeof bytes === "bigint") {
+    const k = 1024n;
+    let i = 0;
+    let value = bytes;
+    while (value >= k && i < sizes.length - 1) {
+      value /= k;
+      i += 1;
+    }
+    return `${value.toString()} ${sizes[i]}`;
+  }
+  const k = 1024;
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
@@ -792,9 +815,7 @@ async function uploadFile(file) {
       const arrayBuffer = await chunk.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
 
-      const base64 = btoa(String.fromCharCode(...uint8Array));
-
-      send({ type: "file_upload", path, data: base64, offset, transferId });
+      send({ type: "file_upload", path, data: uint8Array, offset, transferId });
       offset += chunk.size;
       transfer.sent = offset;
       transfer.progress = Math.round((offset / file.size) * 100);
