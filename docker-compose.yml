@@ -40,7 +40,7 @@ services:
     build:
       context: .
       dockerfile: docker/agent-builder.Dockerfile
-    image: overlord/agent-builder:local
+    image: ghcr.io/pulsarv2/overlord/agent-builder:latest
     container_name: overlord-agent-builder
     profiles: ["builder"]
     environment:
