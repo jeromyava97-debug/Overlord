@@ -3,11 +3,9 @@ package handlers
 import (
 	"context"
 	"log"
-	"time"
-
-	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/wire"
+	"time"
 )
 
 func HandlePing(ctx context.Context, env *runtime.Env, envelope map[string]interface{}) error {
@@ -23,5 +21,5 @@ func HandlePing(ctx context.Context, env *runtime.Env, envelope map[string]inter
 	}
 	log.Printf("ping: pong sent successfully")
 
-	return capture.Now(ctx, env)
+	return nil
 }
