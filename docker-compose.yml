@@ -42,6 +42,7 @@ services:
       GO_BUILD_FLAGS: "${GO_BUILD_FLAGS:--trimpath}"
     volumes:
       - ./dist-clients:/out
+    restart: unless-stopped
     networks:
       - overlord-network
 
