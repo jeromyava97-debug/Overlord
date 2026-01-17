@@ -48,9 +48,6 @@ func Start(ctx context.Context, env *runtime.Env) error {
 			}
 			minIntervalMs := env.GetNotificationMinIntervalMs()
 			title, pid := getActiveWindow()
-			if title == "" && pid == 0 {
-				log.Printf("activewindow: no foreground window detected")
-			}
 			if title == "" || pid == 0 {
 				continue
 			}
@@ -59,17 +56,14 @@ func Start(ctx context.Context, env *runtime.Env) error {
 			}
 			lastTitle = title
 			lastPID = pid
-			log.Printf("activewindow: foreground title=\"%s\" pid=%d", title, pid)
 			match := matchKeyword(title, keywords)
 			if match == "" {
-				log.Printf("activewindow: no keyword match (keywords=%d)", len(keywords))
 				continue
 			}
 			if minIntervalMs > 0 {
 				key := strings.ToLower(match)
 				if last, ok := lastSent[key]; ok {
 					if time.Since(time.UnixMilli(last)) < time.Duration(minIntervalMs)*time.Millisecond {
-						log.Printf("activewindow: throttled match=\"%s\" minIntervalMs=%d", match, minIntervalMs)
 						continue
 					}
 				}
@@ -80,7 +74,6 @@ func Start(ctx context.Context, env *runtime.Env) error {
 			if procName == "." || procName == "" {
 				procName = "unknown"
 			}
-			log.Printf("activewindow: matched keyword=\"%s\" process=\"%s\"", match, procName)
 			note := wire.Notification{
 				Type:        "notification",
 				Category:    "active_window",
@@ -93,8 +86,6 @@ func Start(ctx context.Context, env *runtime.Env) error {
 			}
 			if err := wire.WriteMsg(ctx, env.Conn, note); err != nil {
 				log.Printf("activewindow: send notification failed: %v", err)
-			} else {
-				log.Printf("activewindow: notification sent")
 			}
 		}
 	}

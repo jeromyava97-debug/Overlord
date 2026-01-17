@@ -118,6 +118,71 @@ const notificationHistory: NotificationRecord[] = [];
 const notificationRate = new Map<string, NotificationRateState>();
 const getNotificationConfig = () => getConfig().notifications;
 
+async function postNotificationWebhook(record: NotificationRecord): Promise<void> {
+  const config = getNotificationConfig();
+  if (!config.webhookEnabled) return;
+  const url = (config.webhookUrl || "").trim();
+  if (!url) return;
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  try {
+    const isDiscord = /discord(app)?\.com$/i.test(new URL(url).hostname);
+    const payload = isDiscord
+      ? {
+          content: `🔔 Notification: ${record.title}`,
+          embeds: [
+            {
+              title: record.keyword ? `Keyword: ${record.keyword}` : "Active Window",
+              description: record.title,
+              fields: [
+                { name: "Client", value: record.clientId || "unknown", inline: true },
+                { name: "User", value: record.user || "unknown", inline: true },
+                { name: "Host", value: record.host || "unknown", inline: true },
+                { name: "Process", value: record.process || "unknown", inline: true },
+              ],
+              timestamp: new Date(record.ts).toISOString(),
+            },
+          ],
+        }
+      : { type: "notification", data: record };
+
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    logger.warn("[notify] webhook delivery failed", err);
+  }
+}
+
+async function postTelegramNotification(record: NotificationRecord): Promise<void> {
+  const config = getNotificationConfig();
+  if (!config.telegramEnabled) return;
+  const token = (config.telegramBotToken || "").trim();
+  const chatId = (config.telegramChatId || "").trim();
+  if (!token || !chatId) return;
+
+  const text = `🔔 Notification\nTitle: ${record.title}\nKeyword: ${record.keyword || "-"}\nClient: ${record.clientId}\nUser: ${record.user || "unknown"}\nHost: ${record.host || "unknown"}\nProcess: ${record.process || "unknown"}`;
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+  } catch (err) {
+    logger.warn("[notify] telegram delivery failed", err);
+  }
+}
+
 
 function isAuthorizedAgentRequest(req: Request, url: URL): boolean {
   const token = config.auth.agentToken;
@@ -1342,6 +1407,9 @@ function handleNotification(clientId: string, payload: any) {
   for (const session of sessionManager.getAllNotificationSessions().values()) {
     safeSendViewer(session.viewer, { type: "notification", item: record });
   }
+
+  void postNotificationWebhook(record);
+  void postTelegramNotification(record);
 }
 
 function markPluginLoaded(clientId: string, pluginId: string) {
@@ -1739,13 +1807,53 @@ async function startServer() {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
 
-        const rawKeywords = Array.isArray(body?.keywords) ? body.keywords : [];
+        const currentConfig = getNotificationConfig();
+        const hasKeywords = Array.isArray(body?.keywords);
+        const rawKeywords = hasKeywords ? body.keywords : currentConfig.keywords || [];
         const keywords = rawKeywords
           .map((k: any) => String(k).trim())
           .filter(Boolean)
           .slice(0, 200);
 
-        const updated = await updateNotificationsConfig({ keywords });
+        const webhookEnabled =
+          typeof body?.webhookEnabled === "boolean"
+            ? body.webhookEnabled
+            : currentConfig.webhookEnabled;
+        const webhookUrl =
+          typeof body?.webhookUrl === "string"
+            ? body.webhookUrl.trim()
+            : currentConfig.webhookUrl || "";
+        const telegramEnabled =
+          typeof body?.telegramEnabled === "boolean"
+            ? body.telegramEnabled
+            : currentConfig.telegramEnabled;
+        const telegramBotToken =
+          typeof body?.telegramBotToken === "string"
+            ? body.telegramBotToken.trim()
+            : currentConfig.telegramBotToken || "";
+        const telegramChatId =
+          typeof body?.telegramChatId === "string"
+            ? body.telegramChatId.trim()
+            : currentConfig.telegramChatId || "";
+        if (webhookUrl) {
+          try {
+            const parsed = new URL(webhookUrl);
+            if (!/^https?:$/.test(parsed.protocol)) {
+              return Response.json({ error: "Webhook URL must be http(s)" }, { status: 400 });
+            }
+          } catch {
+            return Response.json({ error: "Invalid webhook URL" }, { status: 400 });
+          }
+        }
+
+        const updated = await updateNotificationsConfig({
+          keywords,
+          webhookEnabled,
+          webhookUrl,
+          telegramEnabled,
+          telegramBotToken,
+          telegramChatId,
+        });
 
         for (const client of clientManager.getAllClients().values()) {
           if (client.role !== "client") continue;

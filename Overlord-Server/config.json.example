@@ -18,6 +18,11 @@
     "minIntervalMs": 8000,
     "spamWindowMs": 60000,
     "spamWarnThreshold": 5,
-    "historyLimit": 200
+    "historyLimit": 200,
+    "webhookEnabled": false,
+    "webhookUrl": "",
+    "telegramEnabled": false,
+    "telegramBotToken": "",
+    "telegramChatId": ""
   }
 }

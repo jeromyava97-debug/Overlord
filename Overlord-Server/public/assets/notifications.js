@@ -12,6 +12,16 @@ const emptyState = document.getElementById("empty-state");
 const keywordInput = document.getElementById("keyword-input");
 const saveKeywordsBtn = document.getElementById("save-keywords");
 const keywordHint = document.getElementById("keyword-hint");
+const webhookEnabledInput = document.getElementById("webhook-enabled");
+const webhookUrlInput = document.getElementById("webhook-url");
+const saveWebhookBtn = document.getElementById("save-webhook");
+const telegramEnabledInput = document.getElementById("telegram-enabled");
+const telegramBotTokenInput = document.getElementById("telegram-bot-token");
+const telegramChatIdInput = document.getElementById("telegram-chat-id");
+const saveTelegramBtn = document.getElementById("save-telegram");
+const panelToggle = document.getElementById("notification-panel-toggle");
+const panel = document.getElementById("notification-panel");
+const panelClose = document.getElementById("notification-panel-close");
 
 const MAX_ROWS = 200;
 
@@ -70,7 +80,6 @@ function renderRow(item, prepend = true) {
 function handleNotification(item) {
   console.log("[notifications] item", item);
   renderRow(item, true);
-  markAllNotificationsRead();
 }
 
 
@@ -92,9 +101,25 @@ async function loadKeywords() {
     const res = await fetch("/api/notifications/config");
     if (!res.ok) return;
     const data = await res.json();
-    const keywords = data?.notifications?.keywords || [];
+    const notifications = data?.notifications || {};
+    const keywords = notifications.keywords || [];
     keywordInput.value = keywords.join("\n");
     renderKeywordHint(keywords.length);
+    if (webhookEnabledInput) {
+      webhookEnabledInput.checked = !!notifications.webhookEnabled;
+    }
+    if (webhookUrlInput) {
+      webhookUrlInput.value = notifications.webhookUrl || "";
+    }
+    if (telegramEnabledInput) {
+      telegramEnabledInput.checked = !!notifications.telegramEnabled;
+    }
+    if (telegramBotTokenInput) {
+      telegramBotTokenInput.value = notifications.telegramBotToken || "";
+    }
+    if (telegramChatIdInput) {
+      telegramChatIdInput.value = notifications.telegramChatId || "";
+    }
   } catch {}
 }
 
@@ -128,6 +153,60 @@ function wireKeywordSave() {
   });
 }
 
+function wireWebhookSave() {
+  if (!saveWebhookBtn || !webhookUrlInput || !webhookEnabledInput) return;
+  saveWebhookBtn.addEventListener("click", async () => {
+    const webhookUrl = webhookUrlInput.value.trim();
+    const webhookEnabled = !!webhookEnabledInput.checked;
+    try {
+      const res = await fetch("/api/notifications/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhookUrl, webhookEnabled }),
+      });
+      if (!res.ok) {
+        window.showToast?.("Failed to save webhook", "error", 4000);
+        return;
+      }
+      const data = await res.json();
+      const notifications = data?.notifications || {};
+      webhookEnabledInput.checked = !!notifications.webhookEnabled;
+      webhookUrlInput.value = notifications.webhookUrl || "";
+      window.showToast?.("Webhook updated", "success", 3000);
+    } catch {
+      window.showToast?.("Failed to save webhook", "error", 4000);
+    }
+  });
+}
+
+function wireTelegramSave() {
+  if (!saveTelegramBtn || !telegramBotTokenInput || !telegramChatIdInput || !telegramEnabledInput) return;
+  saveTelegramBtn.addEventListener("click", async () => {
+    const telegramBotToken = telegramBotTokenInput.value.trim();
+    const telegramChatId = telegramChatIdInput.value.trim();
+    const telegramEnabled = !!telegramEnabledInput.checked;
+    try {
+      const res = await fetch("/api/notifications/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramBotToken, telegramChatId, telegramEnabled }),
+      });
+      if (!res.ok) {
+        window.showToast?.("Failed to save Telegram settings", "error", 4000);
+        return;
+      }
+      const data = await res.json();
+      const notifications = data?.notifications || {};
+      telegramEnabledInput.checked = !!notifications.telegramEnabled;
+      telegramBotTokenInput.value = notifications.telegramBotToken || "";
+      telegramChatIdInput.value = notifications.telegramChatId || "";
+      window.showToast?.("Telegram settings updated", "success", 3000);
+    } catch {
+      window.showToast?.("Failed to save Telegram settings", "error", 4000);
+    }
+  });
+}
+
 
 function connect() {
   startNotificationClient();
@@ -142,11 +221,28 @@ function connect() {
     if (emptyState) {
       emptyState.classList.toggle("hidden", history.length > 0);
     }
-    markAllNotificationsRead();
   });
   subscribeNotifications(handleNotification);
 }
 
+function wirePanelToggle() {
+  if (!panel || !panelToggle || !panelClose) return;
+  const openPanel = () => {
+    panel.classList.remove("hidden");
+    panelToggle.classList.add("hidden");
+    markAllNotificationsRead();
+  };
+  const closePanel = () => {
+    panel.classList.add("hidden");
+    panelToggle.classList.remove("hidden");
+  };
+  panelToggle.addEventListener("click", openPanel);
+  panelClose.addEventListener("click", closePanel);
+}
+
 wireKeywordSave();
+wireWebhookSave();
+wireTelegramSave();
 loadKeywords();
+wirePanelToggle();
 connect();

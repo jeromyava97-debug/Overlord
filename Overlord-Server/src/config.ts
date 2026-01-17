@@ -25,6 +25,11 @@ export interface Config {
     spamWindowMs: number;
     spamWarnThreshold: number;
     historyLimit: number;
+    webhookEnabled: boolean;
+    webhookUrl: string;
+    telegramEnabled: boolean;
+    telegramBotToken: string;
+    telegramChatId: string;
   };
 }
 
@@ -50,6 +55,11 @@ const DEFAULT_CONFIG: Config = {
     spamWindowMs: 60000,
     spamWarnThreshold: 5,
     historyLimit: 200,
+    webhookEnabled: false,
+    webhookUrl: "",
+    telegramEnabled: false,
+    telegramBotToken: "",
+    telegramChatId: "",
   },
 };
 
@@ -187,6 +197,26 @@ export function loadConfig(): Config {
         Number(process.env.OVERLORD_NOTIFICATION_HISTORY_LIMIT) ||
         fileConfig.notifications?.historyLimit ||
         DEFAULT_CONFIG.notifications.historyLimit,
+      webhookEnabled:
+        String(process.env.OVERLORD_NOTIFICATION_WEBHOOK_ENABLED || "").toLowerCase() === "true" ||
+        fileConfig.notifications?.webhookEnabled ||
+        DEFAULT_CONFIG.notifications.webhookEnabled,
+      webhookUrl:
+        process.env.OVERLORD_NOTIFICATION_WEBHOOK_URL ||
+        fileConfig.notifications?.webhookUrl ||
+        DEFAULT_CONFIG.notifications.webhookUrl,
+      telegramEnabled:
+        String(process.env.OVERLORD_NOTIFICATION_TELEGRAM_ENABLED || "").toLowerCase() === "true" ||
+        fileConfig.notifications?.telegramEnabled ||
+        DEFAULT_CONFIG.notifications.telegramEnabled,
+      telegramBotToken:
+        process.env.OVERLORD_NOTIFICATION_TELEGRAM_BOT_TOKEN ||
+        fileConfig.notifications?.telegramBotToken ||
+        DEFAULT_CONFIG.notifications.telegramBotToken,
+      telegramChatId:
+        process.env.OVERLORD_NOTIFICATION_TELEGRAM_CHAT_ID ||
+        fileConfig.notifications?.telegramChatId ||
+        DEFAULT_CONFIG.notifications.telegramChatId,
     },
   };
 

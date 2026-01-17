@@ -70,10 +70,94 @@
           <div class="mt-2 text-xs text-slate-500" id="keyword-hint"></div>
         </div>
 
-        <div
-          class="bg-slate-900/60 border border-slate-800 rounded-xl p-4"
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">Webhook</h2>
+              <p class="text-sm text-slate-400">
+                Send each notification to an external webhook URL.
+              </p>
+            </div>
+            <button
+              id="save-webhook"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <i class="fa-solid fa-save"></i>
+              <span>Save Webhook</span>
+            </button>
+          </div>
+          <label class="mt-3 inline-flex items-center gap-2 text-sm text-slate-300">
+            <input id="webhook-enabled" type="checkbox" class="w-4 h-4" />
+            Enable webhook delivery
+          </label>
+          <input
+            id="webhook-url"
+            type="password"
+            placeholder="https://example.com/notify"
+            class="mt-3 w-full rounded-lg bg-slate-950 border border-slate-800 text-slate-100 p-3 focus:outline-none focus:border-blue-500"
+          />
+          <div class="mt-2 text-xs text-slate-500">
+            Payload: { type: "notification", data: { ... } }
+          </div>
+        </div>
+
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">Telegram Bot</h2>
+              <p class="text-sm text-slate-400">
+                Send each notification to a Telegram chat via bot.
+              </p>
+            </div>
+            <button
+              id="save-telegram"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <i class="fa-solid fa-save"></i>
+              <span>Save Telegram</span>
+            </button>
+          </div>
+          <label class="mt-3 inline-flex items-center gap-2 text-sm text-slate-300">
+            <input id="telegram-enabled" type="checkbox" class="w-4 h-4" />
+            Enable Telegram delivery
+          </label>
+          <input
+            id="telegram-bot-token"
+            type="password"
+            placeholder="Bot token (123456:ABC-DEF...)"
+            class="mt-3 w-full rounded-lg bg-slate-950 border border-slate-800 text-slate-100 p-3 focus:outline-none focus:border-blue-500"
+          />
+          <input
+            id="telegram-chat-id"
+            type="password"
+            placeholder="Chat ID (e.g. 123456789)"
+            class="mt-3 w-full rounded-lg bg-slate-950 border border-slate-800 text-slate-100 p-3 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+
+        <button
+          id="notification-panel-toggle"
+          class="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
         >
-          <div class="overflow-x-auto">
+          <i class="fa-solid fa-bell"></i>
+          <span>Open Notifications</span>
+        </button>
+
+        <div
+          id="notification-panel"
+          class="hidden fixed bottom-5 left-5 right-5 z-40 max-w-7xl mx-auto bg-slate-900/95 border border-slate-800 rounded-xl p-4 shadow-2xl"
+        >
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold">Notifications</h2>
+            <button
+              id="notification-panel-close"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100"
+            >
+              <i class="fa-solid fa-xmark"></i>
+              <span>Close</span>
+            </button>
+          </div>
+          <div class="overflow-x-auto max-h-80">
             <table class="min-w-full text-sm">
               <thead class="text-slate-400">
                 <tr class="text-left">
@@ -90,7 +174,7 @@
           </div>
           <div
             id="empty-state"
-            class="py-8 text-center text-slate-400"
+            class="py-6 text-center text-slate-400"
           >
             No notifications yet.
           </div>
