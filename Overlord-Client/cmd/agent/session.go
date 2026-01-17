@@ -27,9 +27,7 @@ func runClient(cfg config.Config) {
 	backoff := baseBackoff
 	log.Printf("runtime GOOS=%s GOARCH=%s cfg.OS=%s cfg.Arch=%s", runtime.GOOS, runtime.GOARCH, cfg.OS, cfg.Arch)
 
-	if len(cfg.ServerURLs) == 0 {
-		log.Fatal("No server URLs configured")
-	}
+	ensureServerURLs(&cfg, baseBackoff)
 
 	if len(cfg.ServerURLs) > 1 {
 		log.Printf("Failover enabled with %d servers:", len(cfg.ServerURLs))
@@ -82,6 +80,13 @@ func runClient(cfg config.Config) {
 			log.Printf("dial failed: %v (retrying in %s)", err, backoff)
 			consecutiveFailures++
 
+			if shouldRefreshRawList(cfg, consecutiveFailures) {
+				if refreshServerURLsFromRaw(&cfg) {
+					currentIndex = 0
+					consecutiveFailures = 0
+				}
+			}
+
 			if len(cfg.ServerURLs) > 1 {
 				currentIndex = (currentIndex + 1) % len(cfg.ServerURLs)
 				log.Printf("switching to next server [%d/%d]: %s", currentIndex+1, len(cfg.ServerURLs), cfg.ServerURLs[currentIndex])
@@ -105,6 +110,13 @@ func runClient(cfg config.Config) {
 		if err := runSession(ctx, cancel, conn, cfg); err != nil {
 			log.Printf("session ended: %v (retrying in %s)", err, backoff)
 
+			if shouldRefreshRawList(cfg, len(cfg.ServerURLs)) {
+				if refreshServerURLsFromRaw(&cfg) {
+					currentIndex = 0
+					consecutiveFailures = 0
+				}
+			}
+
 			if len(cfg.ServerURLs) > 1 {
 				currentIndex = (currentIndex + 1) % len(cfg.ServerURLs)
 				log.Printf("switching to next server [%d/%d]: %s", currentIndex+1, len(cfg.ServerURLs), cfg.ServerURLs[currentIndex])
@@ -113,6 +125,66 @@ func runClient(cfg config.Config) {
 
 		time.Sleep(backoff)
 	}
+}
+
+func ensureServerURLs(cfg *config.Config, backoff time.Duration) {
+	if len(cfg.ServerURLs) > 0 {
+		return
+	}
+
+	if cfg.RawServerListURL == "" {
+		log.Fatal("No server URLs configured")
+	}
+
+	log.Printf("No server URLs configured. Fetching raw list from %s", cfg.RawServerListURL)
+	for len(cfg.ServerURLs) == 0 {
+		if refreshServerURLsFromRaw(cfg) {
+			return
+		}
+		log.Printf("Retrying raw server list fetch in %s", backoff)
+		time.Sleep(backoff)
+	}
+}
+
+func shouldRefreshRawList(cfg config.Config, failures int) bool {
+	if cfg.RawServerListURL == "" {
+		return false
+	}
+	if len(cfg.ServerURLs) == 0 {
+		return true
+	}
+	return failures >= len(cfg.ServerURLs)
+}
+
+func refreshServerURLsFromRaw(cfg *config.Config) bool {
+	urls, err := config.LoadServerURLsFromRaw(cfg.RawServerListURL)
+	if err != nil {
+		log.Printf("[config] WARNING: failed to refresh raw server list: %v", err)
+		return false
+	}
+
+	if len(urls) == 0 {
+		log.Printf("[config] WARNING: raw server list returned no URLs")
+		return false
+	}
+
+	if !equalStringSlices(cfg.ServerURLs, urls) {
+		log.Printf("[config] refreshed raw server list (%d servers)", len(urls))
+		cfg.ServerURLs = urls
+	}
+	return true
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func createHTTPTransport(cfg config.Config) *http.Transport {

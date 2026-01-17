@@ -11,6 +11,7 @@ export type BuildStream = {
 export type BuildConfig = {
   platforms: string[];
   serverUrl?: string;
+  rawServerList?: boolean;
   customId?: string;
   countryCode?: string;
   mutex?: string;

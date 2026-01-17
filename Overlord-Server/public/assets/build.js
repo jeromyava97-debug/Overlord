@@ -13,10 +13,35 @@ const usersLink = document.getElementById("users-link");
 const buildLink = document.getElementById("build-link");
 const scriptsLink = document.getElementById("scripts-link");
 const pluginsLink = document.getElementById("plugins-link");
+const rawServerListCheckbox = document.getElementById("raw-server-list");
+const serverUrlInput = document.getElementById("server-url");
 
 let isBuilding = false;
 
 init();
+
+if (rawServerListCheckbox && serverUrlInput) {
+  rawServerListCheckbox.addEventListener("change", () => {
+    const isRaw = rawServerListCheckbox.checked;
+    const current = serverUrlInput.value.trim();
+
+    if (isRaw) {
+      if (current.startsWith("wss://")) {
+        serverUrlInput.value = "https://" + current.slice("wss://".length);
+      } else if (current.startsWith("ws://")) {
+        serverUrlInput.value = "http://" + current.slice("ws://".length);
+      }
+      serverUrlInput.placeholder = "https://your-raw-host/list.txt";
+    } else {
+      if (current.startsWith("https://")) {
+        serverUrlInput.value = "wss://" + current.slice("https://".length);
+      } else if (current.startsWith("http://")) {
+        serverUrlInput.value = "ws://" + current.slice("http://".length);
+      }
+      serverUrlInput.placeholder = "wss://your-server:5173";
+    }
+  });
+}
 
 async function init() {
   try {
@@ -118,6 +143,7 @@ form?.addEventListener("submit", async (e) => {
   }
 
   const serverUrl = form.querySelector("#server-url").value.trim();
+  const rawServerList = form.querySelector("#raw-server-list")?.checked || false;
   const mutex = form.querySelector("#mutex")?.value.trim() || "";
   const disableMutex = form.querySelector('input[name="disable-mutex"]')?.checked || false;
   const customId = form.querySelector("#custom-id").value.trim();
@@ -138,6 +164,7 @@ form?.addEventListener("submit", async (e) => {
   const buildConfig = {
     platforms,
     serverUrl: serverUrl || undefined,
+    rawServerList,
     mutex: disableMutex ? "" : mutex || undefined,
     disableMutex,
     customId: customId || undefined,

