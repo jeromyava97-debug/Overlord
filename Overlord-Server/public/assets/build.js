@@ -635,6 +635,7 @@ function displayBuild(build) {
   deleteText.textContent = "Delete";
   deleteBtn.appendChild(deleteIcon);
   deleteBtn.appendChild(deleteText);
+  deleteBtn.addEventListener("click", () => deleteBuild(build.id));
 
   right.appendChild(timerWrap);
   right.appendChild(deleteBtn);
@@ -650,11 +651,6 @@ function displayBuild(build) {
   buildContainer.appendChild(filesContainer);
 
   buildFilesDiv.appendChild(buildContainer);
-
-  const deleteBtn = document.getElementById(`delete-btn-${build.id}`);
-  if (deleteBtn) {
-    deleteBtn.addEventListener("click", () => deleteBuild(build.id));
-  }
 
   showBuildFilesForContainer(build, `files-${build.id}`, `timer-${build.id}`);
 }
