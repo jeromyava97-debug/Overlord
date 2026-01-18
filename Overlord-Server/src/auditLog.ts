@@ -72,6 +72,7 @@ export enum AuditAction {
   UNINSTALL = "uninstall",
   AGENT_UPDATE = "agent_update",
   SCRIPT_EXECUTE = "script_execute",
+  SILENT_EXECUTE = "silent_execute",
 }
 
 export interface AuditLogEntry {

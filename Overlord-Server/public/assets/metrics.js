@@ -338,6 +338,7 @@ async function checkAuth() {
       document.getElementById("users-link")?.classList.remove("hidden");
       document.getElementById("build-link")?.classList.remove("hidden");
       document.getElementById("plugins-link")?.classList.remove("hidden");
+      document.getElementById("deploy-link")?.classList.remove("hidden");
     } else if (data.role === "operator") {
       document.getElementById("build-link")?.classList.remove("hidden");
     }

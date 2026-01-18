@@ -28,6 +28,7 @@ const usernameDisplay = document.getElementById("username-display");
 const roleBadge = document.getElementById("role-badge");
 const usersLink = document.getElementById("users-link");
 const buildLink = document.getElementById("build-link");
+const deployLink = document.getElementById("deploy-link");
 
 const bulkToolbar = document.getElementById("bulk-toolbar");
 const selectedCountSpan = document.getElementById("selected-count");
@@ -100,6 +101,8 @@ async function loadCurrentUser() {
         if (currentUser.role === "admin") {
           const pluginsLink = document.getElementById("plugins-link");
           pluginsLink?.classList.remove("hidden");
+          deployLink?.classList.remove("hidden");
+          document.getElementById("menu-silent-exec")?.classList.remove("hidden");
         }
 
         const scriptsLink = document.getElementById("scripts-link");
@@ -499,6 +502,11 @@ menu.addEventListener("click", async (e) => {
   }
   if (open === "processes") {
     window.open(`/${contextCard}/processes`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "silent-exec") {
+    window.open(`/deploy?clientId=${contextCard}`, "_blank", "noopener");
     closeMenu(clearContext);
     return;
   }

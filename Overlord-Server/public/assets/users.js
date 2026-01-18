@@ -58,6 +58,7 @@ async function getCurrentUser() {
         document.getElementById("build-link")?.classList.remove("hidden");
         document.getElementById("users-link")?.classList.remove("hidden");
         document.getElementById("plugins-link")?.classList.remove("hidden");
+        document.getElementById("deploy-link")?.classList.remove("hidden");
       } else if (currentUser.role === "operator") {
         document.getElementById("metrics-link")?.classList.remove("hidden");
         document.getElementById("scripts-link")?.classList.remove("hidden");

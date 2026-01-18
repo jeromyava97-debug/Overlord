@@ -8,6 +8,7 @@ menu.innerHTML = `
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-purple-800 bg-purple-900/50 hover:bg-purple-800/70 text-purple-100 flex items-center gap-2" data-open="remotedesktop"><i class="fa-solid fa-desktop"></i> Remote Desktop</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-blue-800 bg-blue-900/50 hover:bg-blue-800/70 text-blue-100 flex items-center gap-2" data-open="files"><i class="fa-solid fa-folder-tree"></i> File Browser</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-orange-800 bg-orange-900/50 hover:bg-orange-800/70 text-orange-100 flex items-center gap-2" data-open="processes"><i class="fa-solid fa-list-check"></i> Process Manager</button>
+  <button id="menu-silent-exec" class="hidden w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-cyan-800 bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-100 flex items-center gap-2" data-open="silent-exec"><i class="fa-solid fa-rocket"></i> Execution</button>
   <div class="border-t border-slate-700 my-2"></div>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-slate-800 bg-slate-800/60 hover:bg-slate-700 flex items-center gap-2" data-action="ping"><i class="fa-solid fa-satellite-dish"></i> Ping</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-slate-800 bg-slate-800/60 hover:bg-slate-700 flex items-center gap-2" data-action="reconnect"><i class="fa-solid fa-rotate"></i> Reconnect</button>

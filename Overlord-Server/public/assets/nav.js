@@ -51,6 +51,12 @@ if (host) {
           ><i class="fa-solid fa-code"></i> Scripts</a
         >
         <a
+          href="/deploy"
+          id="deploy-link"
+          class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
+          ><i class="fa-solid fa-rocket"></i> Deploy</a
+        >
+        <a
           href="/plugins"
           id="plugins-link"
           class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
@@ -125,6 +131,7 @@ if (host) {
     "/": "nav-clients",
     "/metrics": "metrics-link",
     "/scripts": "scripts-link",
+    "/deploy": "deploy-link",
     "/plugins": "plugins-link",
     "/build": "build-link",
     "/users": "users-link",
@@ -204,6 +211,7 @@ if (host) {
   const buildLink = document.getElementById("build-link");
   const pluginsLink = document.getElementById("plugins-link");
   const scriptsLink = document.getElementById("scripts-link");
+  const deployLink = document.getElementById("deploy-link");
 
   async function loadCurrentUser() {
     try {
@@ -260,6 +268,7 @@ if (host) {
       if (user.role === "admin") {
         usersLink?.classList.remove("hidden");
         pluginsLink?.classList.remove("hidden");
+        deployLink?.classList.remove("hidden");
       }
       if (user.role === "admin" || user.role === "operator") {
         buildLink?.classList.remove("hidden");

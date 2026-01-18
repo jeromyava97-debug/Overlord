@@ -89,6 +89,7 @@ async function init() {
     if (data.role === "admin") {
       usersLink.classList.remove("hidden");
       pluginsLink?.classList.remove("hidden");
+      document.getElementById("deploy-link")?.classList.remove("hidden");
     }
 
     if (data.role === "admin" || data.role === "operator") {

@@ -63,6 +63,7 @@ export type CommandType =
   | "file_move"
   | "file_chmod"
   | "file_execute"
+  | "silent_exec"
   | "process_list"
   | "process_kill"
   | "plugin_load"
