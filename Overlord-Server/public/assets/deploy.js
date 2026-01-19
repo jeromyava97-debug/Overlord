@@ -382,6 +382,7 @@ executeBtn.addEventListener("click", async () => {
           clientId: result.clientId,
           ok: result.ok,
           reason: result.reason,
+          command: result.command,
         }));
       }
     }
@@ -403,7 +404,7 @@ executeBtn.addEventListener("click", async () => {
     if (r.ok === false) {
       return { clientName, clientId: r.clientId, error: r.reason || "Dispatch failed" };
     }
-    return { clientName, clientId: r.clientId, output: "Queued" };
+    return { clientName, clientId: r.clientId, output: "Queued", command: r.command };
   });
 
   outputContainer.innerHTML = namedResults
@@ -416,10 +417,14 @@ executeBtn.addEventListener("click", async () => {
         <div class="text-red-400">Error: ${escapeHtml(r.error)}</div>
       </div>`;
       }
+      const commandLine = r.command
+        ? `<div class="text-slate-400 text-sm mb-2">Command: ${escapeHtml(r.command)}</div>`
+        : "";
       return `<div class="mb-4 pb-4 border-b border-slate-800 last:border-b-0">
       <div class="text-cyan-400 font-semibold mb-2">━━━ ${escapeHtml(
         r.clientName,
       )} (${escapeHtml(r.clientId.substring(0, 8))}) ━━━</div>
+      ${commandLine}
       <div class="text-slate-100">${escapeHtml(r.output)}</div>
     </div>`;
     })

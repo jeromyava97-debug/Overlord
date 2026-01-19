@@ -3254,7 +3254,17 @@ async function startServer() {
 
         const bytes = new Uint8Array(await fs.readFile(upload.path));
         const chunkSize = 16 * 1024;
-        const results: Array<{ clientId: string; ok: boolean; reason?: string }> = [];
+        const results: Array<{ clientId: string; ok: boolean; reason?: string; command?: string }> = [];
+
+        const formatCommandDisplay = (commandPath: string, commandArgs: string) => {
+          const trimmedArgs = commandArgs.trim();
+          const needsQuotes = commandPath.includes(" ");
+          const displayCommand = needsQuotes ? `"${commandPath}"` : commandPath;
+          if (!trimmedArgs) {
+            return displayCommand;
+          }
+          return `${displayCommand} ${trimmedArgs}`;
+        };
 
         for (const clientId of clientIds) {
           const target = clientManager.getClient(clientId);
@@ -3314,6 +3324,8 @@ async function startServer() {
             );
           }
 
+          const displayCommand = formatCommandDisplay(destPath, args);
+
           target.ws.send(
             encodeMessage({
               type: "command",
@@ -3334,7 +3346,7 @@ async function startServer() {
             details: JSON.stringify({ uploadId, command: destPath, args }),
           });
 
-          results.push({ clientId, ok: true });
+          results.push({ clientId, ok: true, command: displayCommand });
         }
 
         return Response.json({ ok: true, results });

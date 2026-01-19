@@ -38,6 +38,7 @@ func startSilentProcess(command string, args []string, cwd string, hideWindow bo
 			cmd.Stdout = nullFile
 			cmd.Stderr = nullFile
 		}
+
 		cmd.SysProcAttr = attr
 		return cmd.Start()
 	}

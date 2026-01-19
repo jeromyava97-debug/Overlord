@@ -61,6 +61,37 @@ func sendCommandResultSafe(env *runtime.Env, cmdID string, ok bool, message stri
 	}
 }
 
+func payloadNumberToInt64(value interface{}) int64 {
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int8:
+		return int64(v)
+	case int16:
+		return int64(v)
+	case int32:
+		return int64(v)
+	case int64:
+		return v
+	case uint:
+		return int64(v)
+	case uint8:
+		return int64(v)
+	case uint16:
+		return int64(v)
+	case uint32:
+		return int64(v)
+	case uint64:
+		return int64(v)
+	case float32:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
 func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]interface{}) error {
 	cmdID, _ := envelope["id"].(string)
 	action, _ := envelope["commandType"].(string)
@@ -386,13 +417,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "file_upload":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		path, _ := payload["path"].(string)
-		offset := int64(0)
-		if o, ok := payload["offset"].(float64); ok {
-			offset = int64(o)
-		}
-		if o, ok := payload["offset"].(int64); ok {
-			offset = o
-		}
+		offset := payloadNumberToInt64(payload["offset"])
 		data := []byte{}
 		if d, ok := payload["data"].([]byte); ok {
 			data = d
