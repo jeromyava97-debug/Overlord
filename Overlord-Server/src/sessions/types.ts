@@ -15,6 +15,8 @@ export type SocketData = {
   sessionId?: string;
   ip?: string;
   userRole?: string;
+  wasKnown?: boolean;
+  autoTasksRan?: boolean;
 };
 
 export type ConsoleSession = {

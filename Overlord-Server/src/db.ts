@@ -81,6 +81,34 @@ db.run(
   `CREATE INDEX IF NOT EXISTS idx_notification_screenshots_ts ON notification_screenshots(ts DESC);`,
 );
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS auto_scripts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    script TEXT NOT NULL,
+    script_type TEXT NOT NULL,
+    enabled INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_auto_scripts_trigger ON auto_scripts(trigger, enabled);`,
+);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS auto_script_runs (
+    script_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY (script_id, client_id)
+  );
+`);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_auto_script_runs_ts ON auto_script_runs(ts DESC);`,
+);
+
 export function upsertClientRow(
   partial: Partial<ClientInfo> & {
     id: string;
@@ -250,6 +278,142 @@ export function listClients(filters: ListFilters): ListResult {
   }));
 
   return { page, pageSize, total: totalRow.c, online: onlineRow.c, items };
+}
+
+export type AutoScriptTrigger = "on_connect" | "on_first_connect" | "on_connect_once";
+
+export type AutoScript = {
+  id: string;
+  name: string;
+  trigger: AutoScriptTrigger;
+  script: string;
+  scriptType: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function mapAutoScriptRow(row: any): AutoScript {
+  return {
+    id: row.id,
+    name: row.name,
+    trigger: row.trigger as AutoScriptTrigger,
+    script: row.script,
+    scriptType: row.script_type,
+    enabled: row.enabled === 1,
+    createdAt: Number(row.created_at) || 0,
+    updatedAt: Number(row.updated_at) || 0,
+  };
+}
+
+export function listAutoScripts(): AutoScript[] {
+  const rows = db.query<any>(`SELECT * FROM auto_scripts ORDER BY created_at DESC`).all();
+  return rows.map(mapAutoScriptRow);
+}
+
+export function getAutoScriptsByTrigger(trigger: AutoScriptTrigger): AutoScript[] {
+  const rows = db
+    .query<any>(
+      `SELECT * FROM auto_scripts WHERE trigger=? AND enabled=1 ORDER BY created_at ASC`,
+    )
+    .all(trigger);
+  return rows.map(mapAutoScriptRow);
+}
+
+export function getAutoScript(id: string): AutoScript | null {
+  const row = db.query<any>(`SELECT * FROM auto_scripts WHERE id=?`).get(id);
+  return row ? mapAutoScriptRow(row) : null;
+}
+
+export function createAutoScript(input: {
+  id: string;
+  name: string;
+  trigger: AutoScriptTrigger;
+  script: string;
+  scriptType: string;
+  enabled: boolean;
+}): AutoScript {
+  const now = Date.now();
+  db.run(
+    `INSERT INTO auto_scripts (id, name, trigger, script, script_type, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ,
+    input.id,
+    input.name,
+    input.trigger,
+    input.script,
+    input.scriptType,
+    input.enabled ? 1 : 0,
+    now,
+    now,
+  );
+  return getAutoScript(input.id)!;
+}
+
+export function updateAutoScript(
+  id: string,
+  input: Partial<{
+    name: string;
+    trigger: AutoScriptTrigger;
+    script: string;
+    scriptType: string;
+    enabled: boolean;
+  }>,
+): AutoScript | null {
+  const current = getAutoScript(id);
+  if (!current) return null;
+
+  const next = {
+    name: input.name ?? current.name,
+    trigger: (input.trigger ?? current.trigger) as AutoScriptTrigger,
+    script: input.script ?? current.script,
+    scriptType: input.scriptType ?? current.scriptType,
+    enabled: typeof input.enabled === "boolean" ? input.enabled : current.enabled,
+  };
+
+  db.run(
+    `UPDATE auto_scripts SET name=?, trigger=?, script=?, script_type=?, enabled=?, updated_at=? WHERE id=?`
+    ,
+    next.name,
+    next.trigger,
+    next.script,
+    next.scriptType,
+    next.enabled ? 1 : 0,
+    Date.now(),
+    id,
+  );
+
+  return getAutoScript(id);
+}
+
+export function deleteAutoScript(id: string): boolean {
+  const result = db.run(`DELETE FROM auto_scripts WHERE id=?`, id);
+  db.run(`DELETE FROM auto_script_runs WHERE script_id=?`, id);
+  return (result as any)?.changes ? (result as any).changes > 0 : true;
+}
+
+export function hasAutoScriptRun(scriptId: string, clientId: string): boolean {
+  const row = db
+    .query<any>(
+      `SELECT script_id FROM auto_script_runs WHERE script_id=? AND client_id=?`,
+    )
+    .get(scriptId, clientId);
+  return !!row?.script_id;
+}
+
+export function recordAutoScriptRun(scriptId: string, clientId: string) {
+  db.run(
+    `INSERT OR REPLACE INTO auto_script_runs (script_id, client_id, ts) VALUES (?, ?, ?)`
+    ,
+    scriptId,
+    clientId,
+    Date.now(),
+  );
+}
+
+export function clientExists(id: string): boolean {
+  const row = db.query<any>(`SELECT id FROM clients WHERE id=?`).get(id);
+  return !!row?.id;
 }
 
 export interface BuildRecord {

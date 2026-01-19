@@ -9,6 +9,19 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css"
+    />
+    <style>
+      .CodeMirror {
+        height: 100%;
+      }
+    </style>
     <link rel="stylesheet" href="/assets/main.css" />
     <script src="/assets/toast.js"></script>
     <script src="/assets/ripple.js"></script>
@@ -118,6 +131,53 @@
             </div>
           </div>
 
+          <div class="bg-slate-900/70 rounded-xl border border-slate-800 p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-2">Auto Tasks</h2>
+            <p class="text-sm text-slate-400 mb-4">
+              Automatically execute the current editor script when clients connect. Use with care.
+            </p>
+
+            <div class="space-y-3">
+              <input
+                id="auto-task-name"
+                type="text"
+                placeholder="Task name"
+                class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+
+              <select
+                id="auto-task-trigger"
+                class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100"
+              >
+                <option value="on_connect">On connect (every session)</option>
+                <option value="on_connect_once">On connect (only once per client)</option>
+                <option value="on_first_connect">On first connect (new clients only)</option>
+              </select>
+
+              <div class="flex items-center gap-2">
+                <button
+                  id="auto-task-save-btn"
+                  class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold"
+                >
+                  <i class="fa-solid fa-bolt"></i> Save Auto Task
+                </button>
+                <button
+                  id="auto-task-cancel-btn"
+                  class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold hidden"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="text-sm text-slate-400 mb-2">Active Auto Tasks</div>
+              <div id="auto-task-list" class="space-y-2 max-h-64 overflow-auto">
+                <div class="text-slate-500 text-sm">Loading auto tasks...</div>
+              </div>
+            </div>
+          </div>
+
           <div class="bg-slate-900/70 rounded-xl border border-slate-800 p-6">
             <h2 class="text-xl font-semibold mb-4">Script Templates</h2>
             <div class="space-y-2">
@@ -201,6 +261,10 @@
     </main>
 
     <script type="module" src="/assets/nav.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/powershell/powershell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
     <script type="module" src="/assets/scripts.js"></script>
   </body>
 </html>

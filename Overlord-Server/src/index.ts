@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs/promises";
 import AdmZip from "adm-zip";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, saveBuild, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, saveNotificationScreenshot, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, type NotificationScreenshotRecord } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, saveBuild, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, saveNotificationScreenshot, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, type NotificationScreenshotRecord, listAutoScripts, getAutoScriptsByTrigger, createAutoScript, updateAutoScript, deleteAutoScript, clientExists, type AutoScriptTrigger, hasAutoScriptRun, recordAutoScriptRun } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { ClientInfo, ClientRole } from "./types";
 import { v4 as uuidv4 } from "uuid";
@@ -80,6 +80,20 @@ const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "script_result",
   "plugin_event",
   "notification",
+]);
+
+const AUTO_SCRIPT_TRIGGERS = new Set<AutoScriptTrigger>([
+  "on_connect",
+  "on_first_connect",
+  "on_connect_once",
+]);
+
+const ALLOWED_SCRIPT_TYPES = new Set([
+  "powershell",
+  "bash",
+  "cmd",
+  "python",
+  "sh",
 ]);
 
 const ALLOWED_PLATFORMS = new Set([
@@ -1155,6 +1169,70 @@ type PendingScript = {
   timeout: NodeJS.Timeout;
 };
 const pendingScripts = new Map<string, PendingScript>();
+
+function dispatchAutoScriptsForConnection(info: ClientInfo, ws: ServerWebSocket<SocketData>) {
+  if (info.role !== "client") return;
+  if (ws.data?.autoTasksRan) return;
+
+  const isNewClient = ws.data?.wasKnown === false;
+  const onConnect = getAutoScriptsByTrigger("on_connect");
+  const onFirst = isNewClient ? getAutoScriptsByTrigger("on_first_connect") : [];
+  const onConnectOnce = getAutoScriptsByTrigger("on_connect_once");
+  const scripts = [...onConnect, ...onFirst, ...onConnectOnce];
+
+  if (scripts.length === 0) {
+    ws.data.autoTasksRan = true;
+    return;
+  }
+
+  for (const script of scripts) {
+    if (script.trigger === "on_connect_once") {
+      if (hasAutoScriptRun(script.id, info.id)) {
+        continue;
+      }
+      recordAutoScriptRun(script.id, info.id);
+    }
+    const scriptType = ALLOWED_SCRIPT_TYPES.has(script.scriptType)
+      ? script.scriptType
+      : "powershell";
+    const cmdId = uuidv4();
+    try {
+      info.ws.send(
+        encodeMessage({
+          type: "command",
+          commandType: "script_exec",
+          id: cmdId,
+          payload: { script: script.script, type: scriptType },
+        })
+      );
+      metrics.recordCommand("script_exec");
+      logAudit({
+        timestamp: Date.now(),
+        username: "system",
+        ip: "server",
+        action: AuditAction.SCRIPT_EXECUTE,
+        targetClientId: info.id,
+        success: true,
+        details: `auto:${script.name} (${scriptType}) trigger=${script.trigger}`,
+      });
+      logger.info(`[auto-script] dispatched ${script.id} (${script.trigger}) to ${info.id}`);
+    } catch (err) {
+      logger.warn(`[auto-script] failed to dispatch ${script.id} to ${info.id}`, err);
+      logAudit({
+        timestamp: Date.now(),
+        username: "system",
+        ip: "server",
+        action: AuditAction.SCRIPT_EXECUTE,
+        targetClientId: info.id,
+        success: false,
+        details: `auto:${script.name} (${scriptType}) trigger=${script.trigger}`,
+        errorMessage: (err as Error)?.message || "send failed",
+      });
+    }
+  }
+
+  ws.data.autoTasksRan = true;
+}
 function logRdSend(header?: any) {
   const now = Date.now();
   if (now - rdSendStats.lastLog < 5000) return;
@@ -2154,6 +2232,147 @@ async function startServer() {
         });
 
         return Response.json({ ok: true, notifications: updated });
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/auto-scripts") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          return new Response(JSON.stringify({ error: "Not authenticated" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        try {
+          requirePermission(user, "clients:control");
+        } catch (error) {
+          if (error instanceof Response) return error;
+          return new Response("Forbidden", { status: 403 });
+        }
+
+        return Response.json({ items: listAutoScripts() });
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/auto-scripts") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          return new Response(JSON.stringify({ error: "Not authenticated" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        try {
+          requirePermission(user, "clients:control");
+        } catch (error) {
+          if (error instanceof Response) return error;
+          return new Response("Forbidden", { status: 403 });
+        }
+
+        let body: any = {};
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+
+        const name = String(body?.name || "").trim();
+        const triggerRaw = String(body?.trigger || "").trim() as AutoScriptTrigger;
+        const script = String(body?.script || "");
+        const scriptTypeRaw = String(body?.scriptType || "powershell").trim();
+        const enabled = typeof body?.enabled === "boolean" ? body.enabled : true;
+
+        if (!name) {
+          return Response.json({ error: "Name is required" }, { status: 400 });
+        }
+        if (!script.trim()) {
+          return Response.json({ error: "Script is required" }, { status: 400 });
+        }
+        if (!AUTO_SCRIPT_TRIGGERS.has(triggerRaw)) {
+          return Response.json({ error: "Invalid trigger" }, { status: 400 });
+        }
+
+        const scriptType = ALLOWED_SCRIPT_TYPES.has(scriptTypeRaw)
+          ? scriptTypeRaw
+          : "powershell";
+
+        const item = createAutoScript({
+          id: uuidv4(),
+          name,
+          trigger: triggerRaw,
+          script,
+          scriptType,
+          enabled,
+        });
+
+        return Response.json({ ok: true, item });
+      }
+
+      const autoScriptMatch = url.pathname.match(/^\/api\/auto-scripts\/(.+)$/);
+      if (autoScriptMatch && req.method === "PUT") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          return new Response(JSON.stringify({ error: "Not authenticated" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        try {
+          requirePermission(user, "clients:control");
+        } catch (error) {
+          if (error instanceof Response) return error;
+          return new Response("Forbidden", { status: 403 });
+        }
+
+        let body: any = {};
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+
+        const triggerRaw = body?.trigger ? String(body.trigger).trim() : undefined;
+        if (triggerRaw && !AUTO_SCRIPT_TRIGGERS.has(triggerRaw as AutoScriptTrigger)) {
+          return Response.json({ error: "Invalid trigger" }, { status: 400 });
+        }
+
+        const scriptTypeRaw = body?.scriptType ? String(body.scriptType).trim() : undefined;
+        const scriptType = scriptTypeRaw
+          ? ALLOWED_SCRIPT_TYPES.has(scriptTypeRaw)
+            ? scriptTypeRaw
+            : "powershell"
+          : undefined;
+
+        const updated = updateAutoScript(autoScriptMatch[1], {
+          name: body?.name ? String(body.name).trim() : undefined,
+          trigger: triggerRaw as AutoScriptTrigger | undefined,
+          script: body?.script ? String(body.script) : undefined,
+          scriptType,
+          enabled: typeof body?.enabled === "boolean" ? body.enabled : undefined,
+        });
+
+        if (!updated) {
+          return Response.json({ error: "Not found" }, { status: 404 });
+        }
+
+        return Response.json({ ok: true, item: updated });
+      }
+
+      if (autoScriptMatch && req.method === "DELETE") {
+        const user = await authenticateRequest(req);
+        if (!user) {
+          return new Response(JSON.stringify({ error: "Not authenticated" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        try {
+          requirePermission(user, "clients:control");
+        } catch (error) {
+          if (error instanceof Response) return error;
+          return new Response("Forbidden", { status: 403 });
+        }
+
+        deleteAutoScript(autoScriptMatch[1]);
+        return Response.json({ ok: true });
       }
 
       const screenshotMatch = url.pathname.match(/^\/api\/notifications\/([^/]+)\/screenshot$/);
@@ -3895,6 +4114,9 @@ async function startServer() {
         
         ws.data.clientId = id;
         ws.data.ip = ip;
+        if (role === "client") {
+          ws.data.wasKnown = clientExists(id);
+        }
         upsertClientRow({ id, role, ip, lastSeen: info.lastSeen, online: 1 });
         logger.info(`[open] ${id} role=${role}`);
         const notificationConfig = getNotificationConfig();
@@ -3965,6 +4187,7 @@ async function startServer() {
             case "hello":
               handleHello(info, payload, ws, ip);
               clientManager.addClient(info.id, info);
+              dispatchAutoScriptsForConnection(info, ws as ServerWebSocket<SocketData>);
               break;
             case "ping":
               handlePing(info, payload, ws);

@@ -12,11 +12,46 @@ const clearOutputBtn = document.getElementById("clear-output-btn");
 const scriptSaveName = document.getElementById("script-save-name");
 const saveScriptBtn = document.getElementById("save-script-btn");
 const savedScriptsList = document.getElementById("saved-scripts-list");
+const autoTaskName = document.getElementById("auto-task-name");
+const autoTaskTrigger = document.getElementById("auto-task-trigger");
+const autoTaskSaveBtn = document.getElementById("auto-task-save-btn");
+const autoTaskCancelBtn = document.getElementById("auto-task-cancel-btn");
+const autoTaskList = document.getElementById("auto-task-list");
 
 let allClients = [];
 let filteredClients = [];
 const selectedClients = new Set();
 const SAVED_SCRIPTS_KEY = "overlord_saved_scripts";
+let autoTasks = [];
+let autoTaskEditingId = null;
+let editorInstance = null;
+
+const EDITOR_MODES = {
+  powershell: "powershell",
+  bash: "shell",
+  cmd: "shell",
+  python: "python",
+  sh: "shell",
+};
+
+function getEditorValue() {
+  if (editorInstance) return editorInstance.getValue();
+  return scriptEditor?.value || "";
+}
+
+function setEditorValue(value) {
+  if (editorInstance) {
+    editorInstance.setValue(value);
+    return;
+  }
+  if (scriptEditor) scriptEditor.value = value;
+}
+
+function setEditorMode(type) {
+  if (!editorInstance) return;
+  const mode = EDITOR_MODES[type] || "powershell";
+  editorInstance.setOption("mode", mode);
+}
 
 async function checkAuth() {
   try {
@@ -243,9 +278,10 @@ function renderSavedScripts() {
       const scripts = getSavedScripts();
       const script = scripts.find((s) => s.id === id);
       if (!script) return;
-      scriptEditor.value = script.content;
+      setEditorValue(script.content);
       scriptType.value = script.type;
       scriptSaveName.value = script.name;
+      setEditorMode(script.type);
       showToast("Script loaded", "success", 3000);
     });
   });
@@ -263,7 +299,7 @@ function renderSavedScripts() {
 
 function saveCurrentScript() {
   const name = scriptSaveName.value.trim();
-  const content = scriptEditor.value.trim();
+  const content = getEditorValue().trim();
   const type = scriptType.value;
 
   if (!name) {
@@ -301,6 +337,164 @@ function saveCurrentScript() {
   showToast("Script saved", "success", 3000);
 }
 
+function triggerLabel(trigger) {
+  if (trigger === "on_first_connect") return "On first connect";
+  if (trigger === "on_connect_once") return "On connect (once)";
+  return "On connect";
+}
+
+function resetAutoTaskForm() {
+  autoTaskEditingId = null;
+  autoTaskName.value = "";
+  autoTaskTrigger.value = "on_connect";
+  autoTaskCancelBtn.classList.add("hidden");
+  autoTaskSaveBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> Save Auto Task';
+}
+
+function setAutoTaskForm(task) {
+  autoTaskEditingId = task.id;
+  autoTaskName.value = task.name || "";
+  autoTaskTrigger.value = task.trigger || "on_connect";
+  scriptType.value = task.scriptType || "powershell";
+  setEditorMode(scriptType.value);
+  setEditorValue(task.script || "");
+  autoTaskCancelBtn.classList.remove("hidden");
+  autoTaskSaveBtn.innerHTML = '<i class="fa-solid fa-pen"></i> Update Auto Task';
+}
+
+async function loadAutoTasks() {
+  if (!autoTaskList) return;
+  try {
+    const res = await fetch("/api/auto-scripts");
+    if (!res.ok) throw new Error("Failed to load auto tasks");
+    const data = await res.json();
+    autoTasks = Array.isArray(data.items) ? data.items : [];
+    renderAutoTasks();
+  } catch (err) {
+    console.error("Failed to load auto tasks:", err);
+    autoTaskList.innerHTML = '<div class="text-red-400 text-sm">Error loading auto tasks</div>';
+  }
+}
+
+function renderAutoTasks() {
+  if (!autoTaskList) return;
+  if (autoTasks.length === 0) {
+    autoTaskList.innerHTML = '<div class="text-slate-500 text-sm">No auto tasks yet.</div>';
+    return;
+  }
+
+  autoTaskList.innerHTML = autoTasks
+    .map((task) => {
+      return `
+        <div class="flex items-start justify-between gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50">
+          <div class="min-w-0">
+            <div class="font-semibold text-slate-100 truncate">${escapeHtml(task.name)}</div>
+            <div class="text-xs text-slate-400">${escapeHtml(triggerLabel(task.trigger))} • ${escapeHtml(task.scriptType)}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1 text-xs text-slate-400">
+              <input type="checkbox" class="auto-task-toggle w-4 h-4" data-id="${escapeHtml(task.id)}" ${task.enabled ? "checked" : ""}>
+              Enabled
+            </label>
+            <button class="auto-task-edit px-2 py-1 text-xs rounded bg-emerald-600 hover:bg-emerald-700 text-white" data-id="${escapeHtml(task.id)}">
+              Edit
+            </button>
+            <button class="auto-task-delete px-2 py-1 text-xs rounded bg-slate-700 hover:bg-slate-600 text-white" data-id="${escapeHtml(task.id)}">
+              Delete
+            </button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  autoTaskList.querySelectorAll(".auto-task-toggle").forEach((toggle) => {
+    toggle.addEventListener("change", async () => {
+      const id = toggle.dataset.id;
+      const enabled = toggle.checked;
+      try {
+        const res = await fetch(`/api/auto-scripts/${id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+          });
+        if (!res.ok) throw new Error("Update failed");
+        showToast(`Auto task ${enabled ? "enabled" : "disabled"}`, "success", 2500);
+        loadAutoTasks();
+      } catch (err) {
+        console.error("Failed to update auto task:", err);
+        showToast("Failed to update auto task", "error", 3000);
+        toggle.checked = !enabled;
+      }
+    });
+  });
+
+  autoTaskList.querySelectorAll(".auto-task-edit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const task = autoTasks.find((t) => t.id === id);
+      if (!task) return;
+      setAutoTaskForm(task);
+    });
+  });
+
+  autoTaskList.querySelectorAll(".auto-task-delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const task = autoTasks.find((t) => t.id === id);
+      const ok = confirm(`Delete auto task "${task?.name || ""}"?`);
+      if (!ok) return;
+      try {
+        const res = await fetch(`/api/auto-scripts/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Delete failed");
+        showToast("Auto task deleted", "info", 2500);
+        if (autoTaskEditingId === id) resetAutoTaskForm();
+        loadAutoTasks();
+      } catch (err) {
+        console.error("Failed to delete auto task:", err);
+        showToast("Failed to delete auto task", "error", 3000);
+      }
+    });
+  });
+}
+
+async function saveAutoTask() {
+  if (!autoTaskName || !autoTaskTrigger || !scriptType) return;
+  const name = autoTaskName.value.trim();
+  const trigger = autoTaskTrigger.value;
+  const scriptTypeValue = scriptType.value;
+  const script = getEditorValue();
+
+  if (!name) {
+    showToast("Please provide a task name", "warning", 3000);
+    return;
+  }
+  if (!script.trim()) {
+    showToast("Script is empty", "warning", 3000);
+    return;
+  }
+
+  autoTaskSaveBtn.disabled = true;
+  try {
+    const payload = { name, trigger, script, scriptType: scriptTypeValue };
+    const res = await fetch(autoTaskEditingId ? `/api/auto-scripts/${autoTaskEditingId}` : "/api/auto-scripts", {
+      method: autoTaskEditingId ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Save failed");
+    showToast(autoTaskEditingId ? "Auto task updated" : "Auto task created", "success", 2500);
+    resetAutoTaskForm();
+    loadAutoTasks();
+  } catch (err) {
+    console.error("Failed to save auto task:", err);
+    showToast("Failed to save auto task", "error", 3000);
+  } finally {
+    autoTaskSaveBtn.disabled = false;
+  }
+}
+
 clientSearch.addEventListener("input", filterAndRenderClients);
 osFilter.addEventListener("change", filterAndRenderClients);
 
@@ -318,8 +512,9 @@ document.querySelectorAll(".template-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const script = btn.dataset.script;
     const type = btn.dataset.type;
-    scriptEditor.value = script;
+    setEditorValue(script);
     scriptType.value = type;
+    setEditorMode(type);
   });
 });
 
@@ -329,7 +524,7 @@ executeBtn.addEventListener("click", async () => {
     return;
   }
 
-  const script = scriptEditor.value.trim();
+  const script = getEditorValue().trim();
   if (!script) {
     alert("Please enter a script to execute");
     return;
@@ -401,6 +596,26 @@ scriptSaveName?.addEventListener("keypress", (e) => {
   }
 });
 
+autoTaskSaveBtn?.addEventListener("click", saveAutoTask);
+autoTaskCancelBtn?.addEventListener("click", resetAutoTaskForm);
+
+scriptType?.addEventListener("change", () => {
+  setEditorMode(scriptType.value);
+});
+
 checkAuth();
 loadClients();
 renderSavedScripts();
+loadAutoTasks();
+
+if (window.CodeMirror && scriptEditor) {
+  editorInstance = window.CodeMirror.fromTextArea(scriptEditor, {
+    lineNumbers: true,
+    mode: EDITOR_MODES[scriptType?.value || "powershell"] || "powershell",
+    theme: "material-darker",
+    indentUnit: 2,
+    tabSize: 2,
+    lineWrapping: true,
+  });
+  editorInstance.setSize(null, "100%");
+}
