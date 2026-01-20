@@ -2,7 +2,7 @@ import geoip from "geoip-lite";
 import { encodeMessage, decodeMessage, WireMessage } from "./protocol";
 import { Buffer } from "node:buffer";
 import { ClientInfo } from "./types";
-import { setThumbnail, setLatestFrame } from "./thumbnails";
+import { getThumbnail, generateThumbnail, setLatestFrame } from "./thumbnails";
 import { upsertClientRow } from "./db";
 import { metrics } from "./metrics";
 
@@ -98,6 +98,9 @@ export function handleFrame(info: ClientInfo, payload: any) {
 
   if (safeFormat) {
     setLatestFrame(info.id, bytes, safeFormat);
+    if (!getThumbnail(info.id)) {
+      generateThumbnail(info.id);
+    }
     upsertClientRow({ id: info.id, lastSeen: Date.now(), online: 1 });
   }
 }
